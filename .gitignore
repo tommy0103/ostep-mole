@@ -3,5 +3,5 @@ dist
 .cache
 *.log
 .DS_Store
-core
-core.*
+/core
+/core.*
