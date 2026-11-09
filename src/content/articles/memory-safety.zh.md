@@ -7,18 +7,18 @@ title: 七成：第 14 章的错误，放大到工业规模
 
 2019 年 2 月，微软安全响应中心（MSRC）的 Matt Miller 在 BlueHat IL 大会上放出了一张此后被反复引用的图。图里统计的是 2006 到 2018 年间，微软每年通过安全更新修复的所有[[rce|远程代码执行]]、[[privilege-escalation|权限提升]]和信息泄露漏洞。每根柱子都分成两段：[[memory-safety|内存安全漏洞]]，和其他一切。每一年，内存安全那一段都占七成左右。
 
-Chromium 项目也公布过自己的统计。代码由另一家公司、另一批人写成，结论却几乎一样：大约 70% 的严重安全漏洞是内存安全问题，其中一半是[[use-after-free|释放后使用]]（use-after-free）。
+2020 年，Chromium 项目也公布了自己的统计。代码由另一家公司、另一批人写成，结论却几乎一样：大约 70% 的严重安全漏洞是内存安全问题，其中一半是[[use-after-free|释放后使用]]（use-after-free）。
 
 第 14 章在列举常见错误之前说过一句话：C 程序能编译通过是“必要的”，但“远远不够”。这篇文章讲的就是这道缺口放大到工业规模时的代价，以及业界如今应对它的三种办法。
 
 ## 到底统计了什么
 
-“70%”这个数字常被随口引用，所以有必要先弄清每个来源到底量的是什么。
+“70%”这个数字来自三份不同的统计：
 
 | 来源 | 统计对象 | 时间范围 | 内存安全占比 |
 |---|---|---|---|
 | 微软（BlueHat IL 2019） | 通过安全更新修复的[[rce|远程代码执行]]、[[privilege-escalation|权限提升]]、信息泄露类 [[cve|CVE]] | 2006–2018，按补丁年份 | 每年约 70% |
-| Chromium | 影响稳定版的 912 个高危或严重安全漏洞 | 2015 年以来 | 约 70%，其中一半是释放后使用 |
+| Chromium（2020 年） | 影响稳定版的 912 个高危或严重安全漏洞 | 2015 年以来 | 约 70%，其中一半是释放后使用 |
 | Android（Google） | Android 报告的漏洞 | 2019 年 | 76% |
 
 从这张表可以读出几点保留意见：
@@ -76,13 +76,13 @@ s->on_close(s);                /* calls whatever address the attacker wrote */
 
 ::scene memcheck
 
-书里推荐 Purify 和 Valgrind。两者都作用于已经构建好的程序：Purify（1992 年）改写目标代码，Valgrind 的 Memcheck 则让程序跑在一颗合成的 CPU 上，追踪每一个字节。所以它们上手容易，但慢。Valgrind 手册提醒，程序会慢“20 到 30 倍”。
+书里推荐 Purify 和 Valgrind。两者都作用于已经构建好的程序：Purify（1992 年）改写目标代码，Valgrind 的 Memcheck 则让程序跑在一颗合成的 CPU 上，追踪每一个字节。所以它们上手容易，但慢。Valgrind 手册从 2005 年起就提醒，程序会慢“20 到 30 倍”。
 
 ::scene asan
 
 **AddressSanitizer**（ASan）由 Google 的 Konstantin Serebryany 等人在 2012 年发表，它把同样的检查做得足够便宜，可以在日常测试里一直开着。它把工作挪进了编译器：每一次读写都多出几条指令，去查一块**影子内存**（shadow memory）——应用内存每 8 个字节对应 1 个影子字节，记录这 8 个字节里有几个可以访问。分配器在每个内存块周围放上带毒的**红区**（redzone）；`free` 则把整块内存标记为有毒，并先放进**隔离区**（quarantine）一段时间，而不是立刻重用。溢出会撞上红区，释放后使用会碰到隔离区里的内存，无论哪种，下一次插桩过的访问都过不了检查。
 
-论文报告的平均减速为 73%，并在 Chromium 里找到了 300 多个此前未知的漏洞。如今 [[clang|Clang]] 的文档把典型减速描述为 2 倍。用 `-fsanitize=address` 编译，书里那个空间不够的 `strcpy` 会在出错的调用处停下，报告一个 `heap-buffer-overflow`，同时给出越界写入的调用栈，以及那块 5 字节内存被分配时的调用栈。
+论文报告的平均减速为 73%，并在 Chromium 里找到了 300 多个此前未知的漏洞。[[clang|Clang]] 的文档从 2011 年起就把典型减速描述为 2 倍。用 `-fsanitize=address` 编译，书里那个空间不够的 `strcpy` 会在出错的调用处停下，报告一个 `heap-buffer-overflow`，同时给出越界写入的调用栈，以及那块 5 字节内存被分配时的调用栈。
 
 ```sh
 clang -fsanitize=address -g -O1 bug.c -o bug && ./bug
@@ -127,7 +127,7 @@ if (k != 0) {
 
 - **廉价的完整性检查。** 从 [[glibc|glibc]] 2.29 起，[[tcache|tcache]] 会给每个释放的块打上一个标记，所以对同一块释放两次，通常会以 `free(): double free detected in tcache 2` 中止，而不是悄悄弄坏空闲链表。
 - **加固的分配器。** 自 Android 11 起，Android 的所有[[native-code|原生代码]]都使用 **Scudo**（低内存设备仍用 [[jemalloc|jemalloc]]）。Scudo 在每个块头里放一个校验和，追踪每个块的状态以便抓住重复释放，还可以在重用之前先把释放的块放进隔离区。
-- **在要紧处推迟重用。** Chrome 的 **MiraclePtr**（BackupRefPtr）把 C++ 类里的裸指针字段换成 `raw_ptr<T>`，后者在分配块里维护一个隐藏的[[reference-count|引用计数]]。如果内存被释放时仍有这样的指针指向它，分配器就给它下毒并留在隔离区，直到计数归零。释放后使用依然会发生，但读到的是毒值，而不是攻击者的数据。它从 Chrome 102 起在 Windows 和 Android 的浏览器进程中启用。Google 估计它能保护该进程中大约一半的释放后使用漏洞，代价是那里多用 3.5–6.5% 的内存。
+- **在要紧处推迟重用。** Chrome 的 **MiraclePtr**（BackupRefPtr）把 C++ 类里的裸指针字段换成 `raw_ptr<T>`，后者在分配块里维护一个隐藏的[[reference-count|引用计数]]。如果内存被释放时仍有这样的指针指向它，分配器就给它下毒并留在隔离区，直到计数归零。释放后使用依然会发生，但读到的是毒值，而不是攻击者的数据。它从 Chrome 102 起在 Windows 和 Android 的浏览器进程中启用。2022 年，Google 估计它能保护该进程中大约一半的释放后使用漏洞，代价是那里多用 3.5–6.5% 的内存。
 - **硬件标签。** Arm 的内存标记扩展（MTE）给内存的每个 16 字节颗粒一个小标签，并在指针高位放一个对应的标签，CPU 在每次读写时比较两者。块被释放时重新打标签，旧指针就对不上了。Android 12 加入了内核和分配器层面的支持。
 
 这些措施都是概率性的或局部的：MiraclePtr 只覆盖类字段，而不是所有指针；标签可能碰巧相同；隔离区终究要把内存再交出去。它们抬高了利用的成本，但没有改变语言本身。
@@ -153,7 +153,7 @@ fn main() {
 
 ::scene android
 
-一个组织换语言之后会发生什么，Android 给出了最好的公开证据。大约从 2019 年起，Android 团队开始把*新*开发转向内存安全语言，为原生代码引入了 Rust，并且决定不重写现有的 C 和 C++。到 Android 13，新增原生代码中约有 21% 是 Rust。内存安全漏洞的占比变化如下：
+一个组织换语言之后会发生什么，Android 给出了最好的公开证据。大约从 2019 年起，Android 团队开始把*新*开发转向内存安全语言，为原生代码引入了 Rust，并且决定不重写现有的 C 和 C++。到 2022 年的 Android 13，新增原生代码中约有 21% 是 Rust。内存安全漏洞的占比变化如下：
 
 | 年份 | 内存安全漏洞在 Android 漏洞中的占比 |
 |---|---|
@@ -201,7 +201,8 @@ Android 团队 2024 年的解释，建立在漏洞数据里的一个观察之上
 
 - Matt Miller：[*Trends, challenges, and strategic shifts in the software vulnerability mitigation landscape*](https://github.com/microsoft/MSRC-Security-Research/blob/master/presentations/2019_02_BlueHatIL/2019_01%20-%20BlueHatIL%20-%20Trends%2C%20challenge%2C%20and%20shifts%20in%20software%20vulnerability%20mitigation.pdf)，BlueHat IL 2019：包含 2006–2018 年统计图和根因分解的幻灯片。
 - MSRC：[*A proactive approach to more secure code*](https://www.microsoft.com/en-us/msrc/blog/2019/07/a-proactive-approach-to-more-secure-code)，2019 年 7 月：微软自己对 70% 这一数字的总结。
-- The Chromium Projects：[*Memory safety*](https://www.chromium.org/Home/chromium-security/memory-safety/)：912 个漏洞的分析，以及 Chromium 的应对策略。
+- The Chromium Projects：[*Memory safety*](https://www.chromium.org/Home/chromium-security/memory-safety/)：912 个漏洞的分析，以及 Chromium 的应对策略；[ZDNet](https://www.zdnet.com/article/chrome-70-of-all-security-bugs-are-memory-safety-issues/) 于 2020 年 5 月作了报道。
+- Jeff Vander Stoep：[*Memory Safe Languages in Android 13*](https://security.googleblog.com/2022/12/memory-safe-languages-in-android-13.html)，Google 安全博客，2022 年 12 月：21% 与 35% 这两个数字。
 - Jeff Vander Stoep、Alex Rebert：[*Eliminating memory safety vulnerabilities at the source*](https://security.googleblog.com/2024/09/eliminating-memory-safety-vulnerabilities-Android.html)，Google 安全博客，2024 年 9 月：关于代码年龄的论证。
 - Jeff Vander Stoep：[*Rust in Android: move fast and fix things*](https://blog.google/security/rust-in-android-move-fast-fix-things/)，2025 年 11 月：低于 20% 的占比、漏洞密度与回滚率。
 - Konstantin Serebryany 等：[*AddressSanitizer: A Fast Address Sanity Checker*](https://www.usenix.org/conference/atc12/technical-sessions/presentation/serebryany)，USENIX ATC 2012；以及 [AddressSanitizer 算法说明](https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm)。

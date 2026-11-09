@@ -171,7 +171,7 @@ The miss ratios are also not independent. The upper cache absorbs the hot reques
 The book assumes uniform pages, uniform miss costs and one thread. Real caches bend it in three ways:
 
 - **Size and cost.** Evicting one large object can make room for hundreds of small ones, and a miss that recomputes a page for 2 seconds is worth more than a 4 KiB [[ssd|SSD]] read. Size-aware policies and memcached's slab classes exist for this.
-- **Concurrency.** Exact LRU moves an entry on *every hit*, putting a lock on the hottest path. The SIEVE and S3-FIFO papers report about 2× and more than 6× the throughput of an optimized LRU at 16 threads, because a hit only sets a bit.
+- **Concurrency.** Exact LRU moves an entry on *every hit*, putting a lock on the hottest path. The SIEVE (2024) and S3-FIFO (2023) papers report about 2× and more than 6× the throughput of an optimized LRU at 16 threads, because a hit only sets a bit.
 - **Admission.** The book admits every missed page. CDNs and flash caches often decide *whether* to admit, since writing a one-hit wonder to flash wears it out for nothing.
 
 :::fold FIFO strikes back: how SIEVE works

@@ -40,6 +40,9 @@ the book's idea carries before the real system has to add something.
 - **Voice.** Plain, precise and warm. Explain, don't sell. No marketing adjectives, no "In today's
   fast-paced world". Short paragraphs. Use concrete numbers wherever you can. Second person ("you") is
   fine. Admit what a simplification leaves out.
+- **Dated numbers.** A measured number carries its year and source, in the sentence or the table row.
+  Then stop: the reader can see that 2012 is long ago. Do not add a sentence saying the data has aged,
+  how to read it, or that the reader should measure their own system.
 
 ## Terms the reader may not know
 

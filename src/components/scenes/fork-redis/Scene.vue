@@ -19,6 +19,8 @@ const SHOW: Record<string, string[]> = {
   pause: ['parent', 'child', 'clients', 'pt', 'frames', 'note'],
   afterexit: ['parent', 'child', 'pt', 'frames', 'flip'],
   snapshot: ['parent', 'child', 'clients', 'pt', 'frames', 'disk', 'write', 'temp'],
+  aoflog: ['parent', 'clients', 'aoflog'],
+  aof: ['parent', 'child', 'clients', 'pt', 'frames', 'write', 'aof'],
   copies: ['parent', 'child', 'clients', 'pt', 'frames', 'meter'],
   model: ['parent', 'child', 'pt', 'frames', 'meter', 'note'],
   promise: ['parent', 'child', 'pt', 'frames', 'meter'],
@@ -43,6 +45,7 @@ const WORLDS: Record<string, World> = {
   literal: { pm: ID, cm: [6, 7, 8, 9, 10, 11], pf: 'wwwwww', cf: 'wwwwww' },
   afterexit: { pm: ID, cm: [null, null, null, null, null, null], pf: 'rrwrrr', cf: 'rrrrrr' },
   snapshot: { ...SHARED, pm: [0, 1, 6, 3, 4, 5], pf: 'rrwrrr' },
+  aof: { ...SHARED, pm: [0, 1, 6, 3, 4, 5], pf: 'rrwrrr' },
   copies: { ...SHARED, pm: [6, 7, 2, 8, 9, 5], pf: 'wwrwwr' },
   model: { ...SHARED, pm: [0, 6, 2, 3, 7, 5], pf: 'rwrrwr' },
   oom: { ...SHARED, pm: [6, 7, 8, 9, 10, 11], pf: 'wwwwww' },
@@ -51,6 +54,8 @@ const WORLDS: Record<string, World> = {
 const world = computed(() => WORLDS[props.state] ?? SHARED)
 const isLiteral = computed(() => props.state === 'literal')
 const isHuge = computed(() => props.state === 'huge')
+/** The states that follow one key through the fork: x is 1 on page 2, and SET x 2 lands on the copy. */
+const followsX = computed(() => props.state === 'snapshot' || props.state === 'aof')
 const childGone = computed(() => props.state === 'afterexit' || props.state === 'oom')
 
 const y = (i: number) => 100 + i * 22
@@ -60,6 +65,8 @@ const PAGES = ID
 const FRAMES = [...ID, 6, 7, 8, 9, 10, 11]
 const pageName = (i: number) => (props.state === 'rules' && i === 5 ? L('buffers', '缓冲区') : L(`page ${i}`, `页 ${i}`))
 function frameName(f: number) {
+  if (followsX.value && f === 2) return L('page 2: x=1', '页 2：x=1')
+  if (followsX.value && f === 6) return L('copy: x=2', '副本：x=2')
   if (f < 6) return pageName(f)
   if (props.state === 'promise') return L('promised', '已承诺')
   const j = world.value.pm.indexOf(f)
@@ -83,6 +90,7 @@ const childSub = computed(() => {
   if (props.state === 'oom') return 'oom-score-adj 800'
   if (props.state === 'literal') return L('a full copy?', '整份拷贝？')
   if (props.state === 'pause') return L('being created', '正在创建')
+  if (props.state === 'aof') return L('writes new base', '写新基础文件')
   return L('writes snapshot', '写快照')
 })
 
@@ -143,7 +151,7 @@ const note = computed(() => NOTE[props.state] ?? [])
     <g :class="part('clients')">
       <rect x="132" y="40" width="96" height="32" rx="6" class="box" />
       <text x="180" y="54" class="lbl c">{{ L('Clients', '客户端') }}</text>
-      <text x="180" y="66" class="sub c">{{ state === 'pause' ? L('waiting', '等待中') : 'SET · GET' }}</text>
+      <text x="180" y="66" class="sub c" :class="{ code: followsX }">{{ state === 'pause' ? L('waiting', '等待中') : followsX ? 'SET x 2' : 'SET · GET' }}</text>
       <path d="M132,56 H110" :class="state === 'pause' ? 'link' : 'call'" marker-end="url(#fr-arrow)" />
     </g>
 
@@ -216,12 +224,52 @@ const note = computed(() => NOTE[props.state] ?? [])
       <text x="246" y="303" class="tag">{{ L('disk', '磁盘') }}</text>
       <g :class="part('temp')">
         <rect x="246" y="308" width="92" height="17" rx="3" class="box" />
-        <text x="292" y="320" class="sub c">{{ L('temporary file', '临时文件') }}</text>
+        <text x="292" y="320" class="sub c">{{ followsX ? L('temp file: x=1', '临时文件：x=1') : L('temporary file', '临时文件') }}</text>
         <path d="M270,325 V338" class="call" marker-end="url(#fr-arrow)" />
         <text x="278" y="336" class="code small">rename()</text>
       </g>
       <rect x="246" y="340" width="92" height="17" rx="3" class="box" />
       <text x="292" y="352" class="code c small">dump.rdb</text>
+    </g>
+
+    <!-- one write command on its way to the AOF, in order -->
+    <g :class="part('aoflog')">
+      <path d="M60,76 V86 H180 V94" class="call" marker-end="url(#fr-arrow)" />
+      <rect x="50" y="96" width="260" height="30" rx="5" class="box" />
+      <text x="180" y="115" class="lbl c">{{ L('run the command in memory', '在内存中执行命令') }}</text>
+      <path d="M180,126 V138" class="call" marker-end="url(#fr-arrow)" />
+      <rect x="50" y="140" width="260" height="30" rx="5" class="box" />
+      <text x="180" y="159" class="lbl c">{{ L('append to the buffer (aof_buf)', '追加到缓冲区（aof_buf）') }}</text>
+      <path d="M180,170 V182" class="call" marker-end="url(#fr-arrow)" />
+      <rect x="50" y="184" width="260" height="30" rx="5" class="box strong" />
+      <text x="180" y="203" class="lbl c">{{ L('write() to the AOF file', 'write() 写入 AOF 文件') }}</text>
+      <path d="M180,214 V226" class="call" marker-end="url(#fr-arrow)" />
+      <rect x="50" y="228" width="260" height="42" rx="5" class="box" />
+      <text x="180" y="245" class="code c small">fsync()</text>
+      <text x="180" y="261" class="sub c">{{ L('always: before replies · everysec: about 1/s', 'always：回复之前 · everysec：约每秒一次') }}</text>
+      <path d="M180,270 V284" class="call" marker-end="url(#fr-arrow)" />
+      <rect x="50" y="286" width="260" height="30" rx="5" class="box" />
+      <text x="180" y="305" class="lbl c">{{ L('reply to the client', '回复客户端') }}</text>
+    </g>
+
+    <!-- an AOF rewrite: the child's base, the parent's increments, and the manifest naming both -->
+    <g :class="part('aof')">
+      <path d="M60,234 V286" class="call" marker-end="url(#fr-arrow)" />
+      <text x="66" y="264" class="tag">{{ L('appends', '追加') }}</text>
+      <rect x="12" y="288" width="112" height="74" rx="6" class="box floor" />
+      <text x="22" y="303" class="tag">{{ L('disk', '磁盘') }}</text>
+      <rect x="22" y="308" width="92" height="17" rx="3" class="box" />
+      <text x="68" y="320" class="code c small">incr.aof</text>
+      <text x="68" y="345" class="code c small">SET x 2</text>
+      <rect x="236" y="288" width="112" height="74" rx="6" class="box floor" />
+      <text x="246" y="303" class="tag">{{ L('disk', '磁盘') }}</text>
+      <rect x="246" y="308" width="92" height="17" rx="3" class="box" />
+      <text x="292" y="320" class="code c small">base.rdb</text>
+      <text x="292" y="345" class="code c small">x = 1</text>
+      <path d="M68,362 V378 M292,362 V378" class="link solid" />
+      <rect x="12" y="378" width="336" height="52" rx="6" class="box" />
+      <text x="180" y="400" class="tag hi c">{{ L('manifest: new base + increments', '清单（manifest）：新基础文件 + 增量文件') }}</text>
+      <text x="180" y="418" class="tag c">{{ L('restart: load x = 1, then replay SET x 2', '重启：加载 x = 1，再重放 SET x 2') }}</text>
     </g>
 
     <!-- how much memory is in use -->

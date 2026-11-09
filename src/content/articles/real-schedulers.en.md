@@ -65,7 +65,7 @@ Read that as MLFQ. A thread that just woke up from I/O is presumed interactive a
 :::fold Inside the boosts: device values, charged waits, and a starvation sweeper
 ::scene sweeper
 
-Microsoft's public documentation stops at the rules above. The detail comes from the *Windows Internals* authors. The numbers here are from David Solomon and Mark Russinovich's teaching material for the Windows XP and Server 2003 kernels. Later versions changed several of them, so treat them as an illustration of how the design works rather than as today's constants.
+Microsoft's public documentation stops at the rules above. The detail comes from the *Windows Internals* authors. The numbers here are from David Solomon and Mark Russinovich's teaching material for the Windows XP and Server 2003 kernels.
 
 **Boost sizes depend on the device.** A [[driver|driver]] completing an I/O request passes a priority increment along with the completion. The common values were 1 for disk, CD-ROM, parallel port and video, 2 for serial, network, named pipe and mailslot, 6 for keyboard or mouse, and 8 for sound. The more a human is likely to be waiting on the device, the bigger the jump.
 

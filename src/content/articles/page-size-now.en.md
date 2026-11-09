@@ -108,7 +108,7 @@ sysctl hw.pagesize        # macOS
 
 On x86-64 the answer is always 4096. The hardware's base page is 4 KiB, with 2 MiB and 1 GiB [[huge-page|huge pages]] one and two levels up the page table, as chapter 23 describes. Four levels of 9 bits each, plus a 12-bit offset, give 48 bits of virtual address. The [five-level note](/notes/five-level) covers what happens beyond that.
 
-On 64-bit Arm the hardware offers a choice of three *translation granules*: 4, 16 or 64 KiB. The operating system picks one. Native arm64 processes on macOS on Apple silicon see 16 KiB pages, and [[asahi|Asahi Linux]] on the same Macs uses 16 KiB because, its documentation explains, the machines' [[iommu|IOMMUs]] only support 16 KiB pages. A Linux [[hypervisor|virtual machine]] on the same chip can still use 4 KiB, which is what the machine at the top of this article does. Android 15 added support for devices that use 16 KiB pages. In Google's initial testing, such devices used slightly more memory on average, launched apps 3.16% faster on average under memory pressure, and booted about 8% (roughly 950 ms) faster.
+On 64-bit Arm the hardware offers a choice of three *translation granules*: 4, 16 or 64 KiB. The operating system picks one. Native arm64 processes on macOS on Apple silicon see 16 KiB pages, and [[asahi|Asahi Linux]] on the same Macs uses 16 KiB because, its documentation explains, the machines' [[iommu|IOMMUs]] only support 16 KiB pages. A Linux [[hypervisor|virtual machine]] on the same chip can still use 4 KiB, which is what the machine at the top of this article does. Android 15 added support for devices that use 16 KiB pages. In Google's initial testing (published 2024–25), such devices used slightly more memory on average, launched apps 3.16% faster on average under memory pressure, and booted about 8% (roughly 950 ms) faster.
 
 Why make pages bigger? Everything in chapters 19 and 20 scales with the page size:
 
@@ -321,5 +321,6 @@ None of this is a simulation. The book drew the mechanisms on paper; the machine
 - [Documentation for /proc/sys/vm](https://docs.kernel.org/admin-guide/sysctl/vm.html): `overcommit_memory` and `drop_caches`.
 - [getrusage(2)](https://man7.org/linux/man-pages/man2/getrusage.2.html), [fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html) and [vdso(7)](https://man7.org/linux/man-pages/man7/vdso.7.html) manual pages.
 - [Support 16 KB page sizes](https://developer.android.com/guide/practices/page-sizes): Android's guide, with Google's measurements.
+- [Prepare your apps for Google Play's 16 KB page size compatibility requirement](https://android-developers.googleblog.com/2025/05/prepare-play-apps-for-devices-with-16kb-page-size.html) (Android Developers Blog, May 2025).
 - [Asahi Linux: broken software](https://asahilinux.org/docs/sw/broken-software/): why Linux on Apple silicon uses 16 KiB pages.
 - Brendan Gregg: [perf examples](https://www.brendangregg.com/perf.html).

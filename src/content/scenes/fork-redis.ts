@@ -11,6 +11,8 @@ const scene: SceneDef = {
     pause: [30, 436],
     afterexit: [30, 236],
     snapshot: [30, 366],
+    aoflog: [30, 322],
+    aof: [30, 434],
     copies: [84, 366],
     model: [84, 436],
     promise: [84, 366],
@@ -105,8 +107,22 @@ const scene: SceneDef = {
     snapshot: {
       title: { en: 'The child writes, the parent serves', zh: '子进程写盘，父进程服务' },
       caption: {
-        en: 'An RDB snapshot goes to a temporary file, then an atomic rename() replaces dump.rdb, so the file only appears when complete. An AOF rewrite follows the same pattern. When the child exits, the parent collects its status with a non-blocking waitpid().',
-        zh: 'RDB 快照先写进临时文件，再用一次原子的 rename() 替换 dump.rdb，所以这个文件只有写完才会出现。AOF 重写遵循同样的模式。子进程退出后，父进程用非阻塞的 waitpid() 收取它的状态。',
+        en: 'SET x 2 lands on the parent’s copy of page 2. The child’s entry still points at the old page, so the temporary file gets x = 1. An atomic rename() then replaces dump.rdb, so the file only appears when complete.',
+        zh: 'SET x 2 落在父进程的页 2 副本上。子进程的页表项仍指向旧页，所以写进临时文件的是 x = 1。之后一次原子的 rename() 替换 dump.rdb，这个文件只有写完才会出现。',
+      },
+    },
+    aoflog: {
+      title: { en: 'Appending to the log', zh: '追加日志，不用 fork' },
+      caption: {
+        en: 'A write command runs in memory first, then goes into a buffer that reaches the file before the replies are sent. When it reaches the disk depends on appendfsync; the default is about once a second.',
+        zh: '写命令先在内存里执行，再进入缓冲区，发送回复之前写入文件。什么时候真正落盘取决于 appendfsync，默认大约每秒一次。',
+      },
+    },
+    aof: {
+      title: { en: 'AOF rewrite: two files, one log', zh: 'AOF 重写：两个文件，一份日志' },
+      caption: {
+        en: 'The child’s new base file holds x = 1. The parent appends SET x 2, and every other write since the fork, to a new incremental file. The manifest names both, so a restart loads x = 1 and then replays SET x 2.',
+        zh: '子进程写出的新基础文件里，x 是 1。父进程把 SET x 2 和 fork 之后的其他写命令追加到新的增量文件。清单指向这两个文件，所以重启时先加载 x = 1，再重放 SET x 2。',
       },
     },
     copies: {

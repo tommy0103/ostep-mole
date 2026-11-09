@@ -179,7 +179,7 @@ Every system on this thread ends up tuning one number, the unit size, against th
 2. **Metadata** shrinks with the unit: one entry per unit, in a table that has to be stored and searched.
 3. **Contiguity** grows with the unit: bigger units mean fewer pieces per object, fewer table lookups and fewer TLB misses or disk seeks.
 
-The vLLM paper's block-size experiment shows it cleanly. Very small blocks underuse the GPU's parallelism; very large ones waste space in each request's last block and reduce sharing. Blocks of 16 to 128 tokens did best on one workload, only 16 and 32 on another with shorter sequences, and they chose 16. Page sizes and size classes come from the same kind of measurement.
+The 2023 vLLM paper's block-size experiment shows it cleanly. Very small blocks underuse the GPU's parallelism; very large ones waste space in each request's last block and reduce sharing. Blocks of 16 to 128 tokens did best on one workload, only 16 and 32 on another with shorter sequences, and they chose 16. Page sizes and size classes come from the same kind of measurement.
 
 ::scene pattern
 

@@ -89,7 +89,7 @@ Wasmtime’s defaults on 64-bit hosts are a 4 GiB reservation and a 32 MiB guard
 
 The costs are virtual address space and a dependence on signals:
 
-- Each memory costs gigabytes of address space, even if it uses one page. A 64-bit host has 128 TiB or more of user address space, so this is affordable, but not unlimited. [[nodejs|Node.js]] describes [[v8|V8]]’s version as a “virtual memory cage” of about 10 GB, and offers a `--disable-wasm-trap-handler` flag for environments with restricted virtual memory. It switches back to explicit checks.
+- Each memory costs gigabytes of address space, even if it uses one page. A 64-bit host has 128 TiB or more of user address space, so this is affordable, but not unlimited. [[nodejs|Node.js]] describes [[v8|V8]]’s version as a “virtual memory cage”, typically 8 GB for a 32-bit memory and 16 GB for a 64-bit one, and offers a `--disable-wasm-trap-handler` flag for environments with restricted virtual memory. It switches back to explicit checks.
 - On 32-bit hosts there is no room for the trick. Wasmtime’s default reservation there is 10 MiB, and every access is checked explicitly.
 :::
 

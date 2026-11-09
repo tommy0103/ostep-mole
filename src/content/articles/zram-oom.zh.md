@@ -50,7 +50,7 @@ swapon --priority 100 /dev/zram0
 cat /sys/block/zram0/mm_stat            # orig_data_size compr_data_size mem_used_total ...
 ```
 
-比命令更要紧的是算术。内核文档建议 zram 设备不要超过内存的两倍，“因为我们预期 2:1 的压缩比”。Fedora 的提案把例子算了出来：16 GiB 内存的机器配一个 4 GiB 的 zram 设备，若以 2:1 装满 4 GiB 匿名页，要占用 2 GiB 内存。净收益是 2 GiB，而不是 4 GiB。提案对此很坦白：swap-on-zram 的淘汰效率大约只有磁盘交换的一半，但“至少快一个数量级”。
+比命令更要紧的是算术。内核文档建议 zram 设备不要超过内存的两倍，“因为我们预期 2:1 的压缩比”。Fedora 2020 年的提案把例子算了出来：16 GiB 内存的机器配一个 4 GiB 的 zram 设备，若以 2:1 装满 4 GiB 匿名页，要占用 2 GiB 内存。净收益是 2 GiB，而不是 4 GiB。提案对此很坦白：swap-on-zram 的淘汰效率大约只有磁盘交换的一半，但“至少快一个数量级”。
 
 有几处细节让这笔交易比压缩比看上去更划算：
 

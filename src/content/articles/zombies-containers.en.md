@@ -183,7 +183,7 @@ When the program exits, the init returns. As PID 1, its exit makes the kernel ki
 
 - **You cannot kill a zombie.** It has already exited. `kill -9` on a zombie does nothing, because there is nothing to receive the signal. The only cure is to make its parent wait, or to kill the parent so the zombie is reparented to an init that will.
 - **PIDs get reused.** Once a zombie is reaped its PID is free, and on a busy system it may soon belong to someone else. A supervisor that remembers a PID and signals it later can hit the wrong process. Linux 5.3 added `pidfd_open()`, which returns a [[handle|file descriptor]] for a process. The descriptor keeps referring to the same process even after it has become a zombie, and since Linux 5.4 `waitid()` can wait on it with `P_PIDFD`.
-- **Libraries do not reap for you.** Rust’s standard library documents that dropping a `Child` handle neither kills nor waits for the process, and warns that leaving zombies around can exhaust process IDs in a long-running program. Other runtimes differ, so check yours.
+- **Libraries do not reap for you.** Rust’s standard library documents that dropping a `Child` handle neither kills nor waits for the process, and warns that leaving zombies around can exhaust process IDs in a long-running program.
 - **Shells as PID 1 are half a fix.** The Phusion post noted that bash does reap adopted children, but it does not forward `SIGTERM` to them when it exits, so a shell as init solves one half of the problem and not the other.
 
 ::scene overview

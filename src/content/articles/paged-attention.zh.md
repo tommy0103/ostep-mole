@@ -164,7 +164,7 @@ def paged_attention(q, block_table, n_tokens, kv_pool, B=16):
 
 ## 论文实际测了什么
 
-头条结论——在相同延迟下，吞吐量是 FasterTransformer 和 [[orca|Orca]] 的 2 到 4 倍——是成立的，但也需要仔细读。
+头条结论是：在相同延迟下，吞吐量是 FasterTransformer 和 [[orca|Orca]] 的 2 到 4 倍。
 
 实验用的是 OPT-13B、66B 和 175B，共享前缀实验另用 [[llama|LLaMA-13B]]，跑在 Google Cloud 的 A100 上：13B 用一块 40 GB 的 GPU，66B 用四块，175B 用八块 80 GB 的 GPU。负载是由 [[sharegpt-alpaca|ShareGPT 和 Alpaca]] 数据集构造的请求轨迹，到达时间服从不同速率的[[poisson|泊松分布]]，每次跑一小时（175B 为控制成本只跑 15 分钟）。指标是*归一化延迟*：每个请求的端到端延迟除以其输出长度，再取平均。吞吐量大致就是系统在这个延迟飙升之前能承受的请求速率。
 

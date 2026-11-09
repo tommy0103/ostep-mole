@@ -50,7 +50,7 @@ swapon --priority 100 /dev/zram0
 cat /sys/block/zram0/mm_stat            # orig_data_size compr_data_size mem_used_total ...
 ```
 
-The arithmetic matters more than the commands. The kernel documentation advises against making a zram device more than twice the size of RAM, “since we expect a 2:1 compression ratio”. Fedora’s proposal works the example. On a 16 GiB machine with a 4 GiB zram device, filling it with 4 GiB of anonymous pages at 2:1 costs 2 GiB of RAM. The net gain is 2 GiB, not 4. The proposal is honest about this: swap-on-zram evicts at about half the efficiency of swap-on-disk, but “it is at least an order of magnitude faster.”
+The arithmetic matters more than the commands. The kernel documentation advises against making a zram device more than twice the size of RAM, “since we expect a 2:1 compression ratio”. Fedora’s 2020 proposal works the example. On a 16 GiB machine with a 4 GiB zram device, filling it with 4 GiB of anonymous pages at 2:1 costs 2 GiB of RAM. The net gain is 2 GiB, not 4. The proposal is honest about this: swap-on-zram evicts at about half the efficiency of swap-on-disk, but “it is at least an order of magnitude faster.”
 
 A few details make the trade better than the ratio suggests:
 

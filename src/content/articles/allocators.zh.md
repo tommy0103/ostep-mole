@@ -121,7 +121,7 @@ mimalloc 由微软研究院的 Daan Leijen、Ben Zorn 和 Leonardo de Moura 开�
 - `local_free`：所属线程把自己释放的块压到这里；
 - `xthread_free`：*其他*线程把它们释放的块压到这里，只需一次原子的[[atomic-cas|比较并交换（CAS）]]。
 
-于是 `malloc` 的快速路径只从一个本线程独享的列表里弹出；每隔一段时间，分配器离开快速路径，把 `local_free` 和 `xthread_free` 并回 `free`——作者称这种节奏为*时间节律*（temporal cadence）。他们的报告测得，在 Redis 上 mimalloc 比 tcmalloc 快 7%，比 jemalloc 快 14%。当前的第 3 版简化了无锁设计。
+于是 `malloc` 的快速路径只从一个本线程独享的列表里弹出；每隔一段时间，分配器离开快速路径，把 `local_free` 和 `xthread_free` 并回 `free`——作者称这种节奏为*时间节律*（temporal cadence）。他们 2019 年的报告测得，在 Redis 上 mimalloc 比 tcmalloc 快 7%，比 jemalloc 快 14%。当前的第 3 版简化了无锁设计。
 
 :::fold 为什么是三个空闲列表而不是一个
 如果每页只有一个空闲列表，所属线程的 `malloc` 和 `free`、其他任何线程的 `free` 都得共用它。这会迫使每次调用都用原子操作，哪怕是最常见的“一个线程分配、同一个线程释放”的情形。

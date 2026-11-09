@@ -5,7 +5,13 @@ title: fork() as a snapshot machine
 
 ::scene overview
 
-[[redis|Redis]] keeps its whole dataset in memory, and many deployments ask it to save that dataset to disk every few minutes. A typical line in its configuration file reads `save 60 1000`: write a snapshot every 60 seconds if at least 1,000 keys have changed. The server keeps answering requests while the snapshot is written, possibly hundreds of thousands of them per second, and the file on disk is still an exact picture of one instant. Redis’s FAQ adds a precise guarantee: every command that is atomic in memory is atomic in the snapshot too.
+[[redis|Redis]] is a server that programs talk to over the network. They store values under keys and read them back, with commands like `SET user:42 alice` and `GET user:42`. [[sqlite|SQLite]] is a library that reads and writes a file on disk; Redis holds the whole dataset in the server’s memory, which makes it fast, and the data is gone when the process exits unless it was saved somewhere.
+
+Picture a website running on three application servers behind a load balancer. A user logs in on server A, which stores the session in Redis with `SET session:abc alice`. The user’s next request lands on server B, which finds it with `GET session:abc`. Rate limiting works the same way: every server runs `INCR` on the same key and sees the same count.
+
+Now Redis restarts, for an upgrade or after a crash, and its memory is empty. Every user is logged out and every count is back at zero. A deployment that uses Redis only as a cache can accept that and turn persistence off. The others need a copy on disk.
+
+Many of them ask Redis to save the dataset to disk every few minutes. A typical line in its configuration file reads `save 60 1000`: write a snapshot every 60 seconds if at least 1,000 keys have changed. The server keeps answering requests while the snapshot is written, possibly hundreds of thousands of them per second, and the file on disk is still an exact picture of one instant. Redis’s FAQ adds a precise guarantee: every command that is atomic in memory is atomic in the snapshot too.
 
 The mechanism behind this is one [[syscall|system call]], the one chapter 5 introduces first. Redis calls `fork()`. The child writes the dataset to a file and exits. The parent goes back to serving clients as if nothing happened.
 
@@ -33,7 +39,7 @@ So `fork()` on Linux does not copy your memory. It copies your **[[page-table|pa
 
 Redis’s latency documentation works through the numbers. On [[x86-64|x86-64]] with 4 KB pages, each mapped page needs an 8-byte [[pte|page-table entry]]. A 24 GB Redis instance therefore needs 24 GB / 4 KB × 8 bytes = 48 MB of page tables, and every fork must allocate and fill another 48 MB for the child. The parent cannot serve requests while it does this, because Redis runs commands on a single main [[thread|thread]], and that thread is the one inside `fork()`.
 
-Redis records the time of the last fork in the `latest_fork_usec` field of `INFO`. Its documentation lists measurements from several systems. They are old: most of the table dates from April 2012, and the “new instance types” row from November 2014.
+Redis records the time of the last fork in the `latest_fork_usec` field of `INFO`. Its documentation has a table of measurements from several systems, most of them added in April 2012:
 
 | System | Resident memory | Fork time | Per GB |
 |---|---|---|---|
@@ -41,10 +47,10 @@ Redis records the time of the last fork in the `latest_fork_usec` field of `INFO
 | Physical machine, unknown hardware | 6.1 GB | 80 ms | 13.1 ms |
 | Large [[hypervisor|VM]] on VMware | 6.0 GB | 77 ms | 12.8 ms |
 | [[ec2-xen|EC2, old instance types (Xen)]] | 6.1 GB | 1,460 ms | 239.3 ms |
-| EC2, new instance types (Xen) | 1 GB | 10 ms | 10 ms |
+| EC2, new instance types (Xen), added in 2014 | 1 GB | 10 ms | 10 ms |
 | VM on Linode (Xen) | 0.9 GB | 382 ms | 424 ms |
 
-At around 10 ms per gigabyte, as on the physical machines above, a 24 GB instance stops for roughly a quarter of a second each time it snapshots. That is the first cost, and it scales with the size of the address space, not with how much data changes. On the old Xen guests the same fork took more than ten times longer. The documentation’s advice for EC2 users is simply to use the newer [[hvm|HVM]] instance types, such as `m3.medium`, which behave almost like physical servers. That advice has aged as well: AWS now lists M3 as a previous generation, and the C5 instances of 2017 were the first to run on its own hypervisor, [[ec2-xen|Nitro]]. Read the 1,460 ms row as a record of what a Xen guest cost around 2012, and measure your own machine with `latest_fork_usec`.
+At around 10 ms per gigabyte, as on the physical machines above, a 24 GB instance stops for roughly a quarter of a second each time it snapshots. That is the first cost, and it scales with the size of the address space, not with how much data changes. On the old Xen guests the same fork took more than ten times longer. The documentation’s advice for EC2 users is simply to use the newer [[hvm|HVM]] instance types, which behave almost like physical servers.
 
 :::fold What the kernel does on fork, and on the first write
 ::scene cow
@@ -81,12 +87,33 @@ Two consequences matter for Redis. First, fork write-protects the *parent’s* e
 
 ## Two kinds of snapshot
 
-Redis forks for two jobs.
+Redis can save its data in two ways, separately or together. An RDB snapshot records the value of every key at one moment. The append-only file (AOF) is a log of every write command, in order. By default RDB is on and AOF is off. With both on, a restart reads the AOF, the more complete of the two, and the RDB files serve as backups. On the website above, a crash with RDB alone loses every session created since the last snapshot. An AOF with the default settings loses about the last second of them.
 
-- **RDB snapshots.** The child writes the whole dataset in a compact binary format to a temporary file, then replaces the old `dump.rdb` with an atomic `rename()`. Since the file only appears when it is complete, it is always safe to copy. The same machinery produces the RDB data a [[replica|replica]] loads when it first synchronizes with its primary.
-- **AOF rewrites.** The append-only file logs every write command. It grows forever, so Redis periodically rewrites it as the shortest set of commands that recreates the current data. The child writes the new log from its frozen view of memory. Since Redis 7.0 the parent meanwhile appends new commands to a fresh incremental file, and a manifest switched atomically at the end ties the new base and the increments together. Before 7.0 the parent buffered those commands in memory and appended them at the end.
+Redis forks for two jobs, writing an RDB snapshot and rewriting its AOF log. Both rest on copy-on-write, and one key shows how.
 
-Both follow the same pattern: the child reads, the parent writes, and the child exits when it is done. The parent then collects the child’s exit status with a non-blocking `waitpid(-1, &statloc, WNOHANG)` in its periodic housekeeping, the `checkChildrenDone()` function. A forgotten child would become a [[zombie|zombie]], the subject of [the previous note](/notes/zombies-containers).
+Say the key `x` holds 1 at the instant of the fork, on page 2. The child starts walking the dataset, and the parent receives `SET x 2`. Page 2 is read-only now, so the parent’s write faults. The kernel copies the page, points the parent’s entry at the copy and makes it writable, and `x` becomes 2 there. The child’s entry has not moved. When the child reaches `x`, it reads 1.
+
+That is what “the child reads, the parent writes” means here: each write of the parent lands on its own copy, and the memory the child reads stays as it was at the fork, with no lock between them and no versions kept by Redis. It also means `SET x 2` never reaches the file the child is writing. The two jobs differ in what they do about that command.
+
+### RDB snapshots
+
+The child writes the whole dataset as it sees it, in a compact binary format, to a temporary file. An RDB file is one complete picture of the data, and the one named `dump.rdb` is what Redis loads when it restarts, so each new snapshot has to take over that name. The child cannot write into `dump.rdb` directly, because a crash halfway through would destroy the only good copy. It finishes the temporary file and then replaces the old `dump.rdb` with an atomic `rename()`, so the name always refers to a whole snapshot. Once produced, the file is never modified, and it is safe to copy while the server runs. In this file `x` is 1. `SET x 2` waits for the next snapshot, and a deployment that relies on RDB alone loses that write if the server crashes first. The same machinery produces the RDB data a [[replica|replica]] loads when it first synchronizes with its primary.
+
+::scene aoflog
+
+### The AOF and its rewrite
+
+With the AOF on, a write command runs against memory first. Redis then adds it to a buffer, and at the end of each pass through its event loop it normally writes that buffer to the file before sending any replies. This needs no fork. When the data reaches the disk depends on `appendfsync`: `always` calls `fsync()` before the replies go out, `everysec`, the default, calls it about once a second from a background thread and can lose about a second of writes in a disaster, and `no` leaves the timing to the operating system.
+
+::scene aof
+
+Because the file logs every write command, it grows forever: increment `x` a million times and the log has a million lines, when recovery only needs the result. Redis rewrites it once it has grown enough: by default, when it has doubled since the last rewrite and is over 64 MB. The rewrite never reads the old log. A forked child walks its frozen memory and writes the current data to a new base file (in RDB format by default), where `x` is 1. A key incremented a million times takes one entry there, because the child sees only the result.
+
+A log cannot skip commands, so `SET x 2` has to be kept somewhere else. Since Redis 7.0 the parent opens a fresh incremental file just before the fork and appends every later write command to it. When the child finishes, the parent atomically switches a manifest file to name the new base and that incremental file. On restart Redis loads the base, which gives `x = 1`, then replays `SET x 2` from the increments and ends with 2. Before 7.0 the parent kept appending those commands to the old file, in case the rewrite failed, and also buffered them in memory to append to the new file at the end. The 7.0 change named the costs: the RAM for the buffer, every such command written to disk twice, and a freeze of the main thread at the end while it drained the buffer and called `fsync()`.
+
+The two formats meet in that base file: with the default settings, a rewritten AOF is an RDB snapshot followed by a log of the commands since. Redis also runs only one of these children at a time, so that two processes are not doing heavy disk I/O at once. A `BGREWRITEAOF` issued while another child is active is scheduled and starts when that child has finished. A `BGSAVE` issued during a rewrite is refused unless it carries the `SCHEDULE` option.
+
+In both jobs the child exits when it is done. The parent then collects the child’s exit status with a non-blocking `waitpid(-1, &statloc, WNOHANG)` in its periodic housekeeping, the `checkChildrenDone()` function. A forgotten child would become a [[zombie|zombie]], the subject of [the previous note](/notes/zombies-containers).
 
 The FAQ’s atomicity guarantee comes from timing. Redis only forks between commands, never during one. Whatever state the child sees is a state some sequence of complete commands produced.
 
@@ -119,7 +146,7 @@ Take a 24 GB instance with 4 KB pages, so *N* is about 6.3 million. Suppose, pur
 
 Now give the same instance 2 MB pages, so *N* is only 12,288. After just one second, *n* = 50,000 and *n*/*N* ≈ 4.1, so the copied fraction is about 98%. Under this model, huge pages turn a gradual 38% into nearly the whole dataset within the first second. That is the situation the Redis documentation describes for [[thp|transparent huge pages]]: a few thousand writes are enough to copy almost all of memory.
 
-The model is crude. Real writes are skewed towards hot keys, which helps, and they also touch allocator metadata and other bookkeeping, which hurts. Redis measures the real number instead. The child reads its own `Private_Dirty` total from `/proc/self/smaps` and reports it to the parent, which shows it in `INFO` as `current_cow_size` during the fork and as `rdb_last_cow_size` or `aof_last_cow_size` afterwards. Reading `smaps` for a large process is itself slow (a comment in the source warns it can exceed 1,000 ms), so the child throttles how often it measures.
+The model is crude. Real writes are skewed towards hot keys, which helps, and they also touch allocator metadata and other bookkeeping, which hurts. Redis measures the real number instead. The child reads its own `Private_Dirty` total from `/proc/self/smaps` and reports it to the parent, which shows it in `INFO` as `current_cow_size` during the fork and as `rdb_last_cow_size` or `aof_last_cow_size` afterwards. Reading `smaps` for a large process is itself slow (a 2021 comment in the source warns it can exceed 1,000 ms), so the child throttles how often it measures.
 :::
 
 ::scene promise
@@ -136,16 +163,22 @@ That moves the risk rather than removing it. If the copies outrun physical memor
 
 ### Huge pages
 
-[TLB reach and huge pages](/notes/huge-pages) explains why a [[huge-page|2 MB page]] helps the [[tlb|TLB]]. For copy-on-write it used to be a disaster. Until 2020, the first write to a shared anonymous [[thp|transparent huge page]] made Linux allocate and copy the whole 2 MB, 512 times the data of a 4 KB copy, so a few thousand writes could copy nearly all of memory. Redis’s documentation still says it plainly: disable transparent huge pages.
+[TLB reach and huge pages](/notes/huge-pages) explains why a [[huge-page|2 MB page]] helps the [[tlb|TLB]]. For copy-on-write it used to be a disaster. Until 2020, the first write to an [[anonymous-memory|anonymous]] [[thp|transparent huge page]] shared after `fork()` made Linux allocate and copy the whole 2 MB, 512 times the data of a 4 KB copy, so a few thousand writes could copy nearly all of memory. Redis’s documentation still says it plainly: disable transparent huge pages.
 
-The kernel changed this behaviour in mid-2020, in a commit merged for Linux 5.8 whose message names Redis as a workload for which THP had been unusable. Since then, a write to a shared anonymous huge page splits the mapping and copies only the 4 KB page that was touched, as Linux already did for file-backed huge pages. The memory blow-up is gone on new kernels, but the split costs work and leaves the parent mapped with small pages until the kernel’s background thread can rebuild the huge page. Redis now ships with `disable-thp yes`. When the system-wide setting is `always`, Redis asks the kernel through [[prctl|`prctl(PR_SET_THP_DISABLE)`]] to turn transparent huge pages off for its process alone.
+The reason was bookkeeping. The kernel’s early reference counting required a huge page to be mapped whole, so a copy-on-write fault on anonymous memory, the kind with no file behind it and the kind Redis’s heap is made of, had to produce another 2 MB page. The kernel can also hold file contents in its [[page-cache|page cache]] as 2 MB pieces and map them into a process as huge pages, and those were handled differently: on a write fault to a private mapping the kernel broke the single 2 MB entry into 512 ordinary 4 KB entries and let the normal small-page path copy one page.
+
+In mid-2020 a commit merged for Linux 5.8 gave anonymous memory the same treatment, and its message names Redis as a workload for which THP had been unusable. Say a parent and child share a 2 MB page after `fork()`, and the parent writes to it. The kernel replaces the parent’s single entry with 512 small entries pointing at the 512 consecutive 4 KB pieces of the same physical page. No data moves, and the child’s entry stays huge. The write then faults on one small entry like any other, and the kernel copies those 4 KB. The other 511 pieces stay shared until each is written in turn.
+
+The change lives in the kernel’s page-fault path, so it applies to every process that forks while holding anonymous transparent huge pages, with no change to the program. Explicitly reserved pages from [[hugetlbfs|hugetlbfs]] take a separate path and are still copied whole. The split also has costs: it takes work, and the parent maps those 2 MB with small pages until the kernel’s background thread can rebuild the huge page.
+
+Redis’s default configuration does not rely on any of this. It ships with `disable-thp yes`: when the system-wide setting is `always`, Redis asks the kernel through [[prctl|`prctl(PR_SET_THP_DISABLE)`]] to turn transparent huge pages off for its process alone.
 
 :::fold How Redis fights its own copy-on-write
 ::scene rules
 
 Redis’s source has accumulated a set of small rules whose only purpose is to keep the parent from touching pages while a child is alive.
 
-- **No access-time updates.** Every key lookup normally updates an [[lru|LRU]] or LFU field in the object header, so even a *read* would dirty a page. `lookupKey()` skips the update while a child is running. The source comment says it would otherwise “trigger a copy on write madness”.
+- **No access-time updates.** Every key lookup normally writes an [[lru|LRU]] or LFU field in the object header, so even a `GET`, a read command, stores to memory and makes the kernel copy that page. In the parent, `lookupKey()` skips the update while a child is running. The source comment says it would otherwise “trigger a copy on write madness”.
 - **No hash-table resizing.** Growing or rehashing a dictionary rewrites large arrays of pointers. `updateDictResizePolicy()` avoids resizes while a child exists, to play well with copy-on-write.
 - **Dismissing memory in the child.** The child does not need client buffers or the replication buffer, and those are exactly what the parent rewrites under heavy traffic. On Linux with [[jemalloc|jemalloc]], the child releases them early with [[madvise|`madvise(MADV_DONTNEED)`]], only for allocations larger than half a page. Once the child has dropped its mapping, the parent’s next write finds the page exclusive and can reuse it without copying. This is skipped when transparent huge pages are on, because `MADV_DONTNEED` may then fail to release memory.
 - **Reporting.** `INFO` shows `current_cow_size`, `current_cow_peak` and `current_fork_perc`, so operators can watch a snapshot’s memory cost while it happens.
@@ -186,6 +219,7 @@ The trade-off is the one virtual memory always makes: an expensive eager operati
 - [Diagnosing latency issues](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/) (Redis docs): the page-table arithmetic, the fork-time measurements and the transparent huge page warning.
 - The commits behind the dates above: [the fork-time table](https://github.com/redis/redis-doc/commit/18caa09945d079be04de8fec5b15d8b5b553c25e) (April 2012) and [the split of EC2 into old and new instance types](https://github.com/redis/redis-doc/commit/85588b658a4383afc116f9fdfab8e61ecbed61bb) (November 2014).
 - Brendan Gregg: [AWS EC2 Virtualization 2017: Introducing Nitro](https://www.brendangregg.com/blog/2017-11-29/aws-ec2-virtualization-2017.html): how EC2 went from Xen paravirtualization to Nitro.
+- [Implement Multi Part AOF mechanism](https://github.com/redis/redis/pull/9788) (Redis pull request, merged January 2022): the costs of the old rewrite, and the design that replaced it.
 - [Redis FAQ](https://redis.io/docs/latest/develop/get-started/faq/): why background saves fail with `fork()` errors, and why snapshots are atomic.
 - Andrew Baumann, Jonathan Appavoo, Orran Krieger, Timothy Roscoe: [*A fork() in the road*](https://www.microsoft.com/en-us/research/uploads/prod/2019/04/fork-hotos19.pdf), HotOS 2019.
 - [Overcommit accounting](https://docs.kernel.org/mm/overcommit-accounting.html) (Linux kernel docs): the three `vm.overcommit_memory` modes.

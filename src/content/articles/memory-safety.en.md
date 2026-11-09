@@ -7,18 +7,18 @@ title: Seventy percent: chapter 14’s bugs at industrial scale
 
 In February 2019 Matt Miller of the Microsoft Security Response Center gave a talk at BlueHat IL with a chart that has been quoted ever since. It covered every [[rce|remote-code-execution]], [[privilege-escalation|privilege-escalation]] and information-disclosure vulnerability that Microsoft had fixed with a security update, year by year from 2006 to 2018. Each bar was split into [[memory-safety|memory-safety bugs]] and everything else. Every year, the memory-safety part came to about 70%.
 
-The Chromium project has published its own count, for a codebase written by different people at a different company: around 70% of its serious security bugs were memory-safety problems, and half of those were [[use-after-free|use-after-free]].
+In 2020 the Chromium project published its own count, for a codebase written by different people at a different company: around 70% of its serious security bugs were memory-safety problems, and half of those were [[use-after-free|use-after-free]].
 
 Chapter 14 opens its list of common errors with the remark that a C program compiling is “necessary” but “far from sufficient”. This article is about what that gap costs at scale, and the three things the industry now does about it.
 
 ## What exactly was counted
 
-The “70%” figure gets repeated loosely, so it is worth being precise about what each source measured.
+The “70%” figure comes from three separate counts:
 
 | source | population | period | memory-safety share |
 |---|---|---|---|
 | Microsoft (BlueHat IL 2019) | [[cve|CVEs]] for [[rce|RCE]], [[privilege-escalation|EoP]] and info-disclosure bugs fixed by a security update | 2006–2018, by patch year | ~70% every year |
-| Chromium | 912 high or critical severity security bugs affecting the Stable channel | since 2015 | ~70%, half of them use-after-free |
+| Chromium (2020) | 912 high or critical severity security bugs affecting the Stable channel | since 2015 | ~70%, half of them use-after-free |
 | Android (Google) | Android’s reported vulnerabilities | 2019 | 76% |
 
 A few caveats follow from the table:
@@ -76,13 +76,13 @@ Two more steps turn this into a working exploit, and both connect to other chapt
 
 ::scene memcheck
 
-The book recommends Purify and Valgrind. Both work on a program that has already been built: Purify (1992) rewrote object code, and Valgrind’s Memcheck runs the program on a synthetic CPU and tracks every byte. That makes them easy to adopt and slow. The Valgrind manual warns of slowdowns of “20 to 30 times”.
+The book recommends Purify and Valgrind. Both work on a program that has already been built: Purify (1992) rewrote object code, and Valgrind’s Memcheck runs the program on a synthetic CPU and tracks every byte. That makes them easy to adopt and slow. The Valgrind manual has warned of slowdowns of “20 to 30 times” since 2005.
 
 ::scene asan
 
 **AddressSanitizer** (ASan), published by Konstantin Serebryany and colleagues at Google in 2012, made the same checks cheap enough to leave on in everyday testing. It moves the work into the compiler. Every load and store gets a few extra instructions that consult **shadow memory**: one shadow byte for every 8 bytes of application memory, saying how many of those 8 are addressable. The allocator surrounds each block with poisoned **redzones**, and `free` poisons the whole block and holds it in a **quarantine** for a while instead of reusing it at once. An overflow runs into a redzone. A use-after-free touches quarantined memory. Either way the next instrumented access fails its check.
 
-The paper reported an average slowdown of 73% and over 300 previously unknown bugs found in Chromium. Today’s [[clang|Clang]] documentation describes the typical slowdown as 2x. Compile with `-fsanitize=address` and the book’s too-small `strcpy` stops at the faulting call with a `heap-buffer-overflow` report, showing the stack of the bad write and the stack where the 5-byte block was allocated.
+The paper reported an average slowdown of 73% and over 300 previously unknown bugs found in Chromium. [[clang|Clang]]’s documentation has described the typical slowdown as 2x since 2011. Compile with `-fsanitize=address` and the book’s too-small `strcpy` stops at the faulting call with a `heap-buffer-overflow` report, showing the stack of the bad write and the stack where the 5-byte block was allocated.
 
 ```sh
 clang -fsanitize=address -g -O1 bug.c -o bug && ./bug
@@ -127,7 +127,7 @@ Some bugs will ship anyway. The second response accepts that and makes the bugs 
 
 - **Cheap integrity checks.** Since [[glibc|glibc]] 2.29 the [[tcache|tcache]] marks each freed chunk with a key, so freeing the same chunk twice usually aborts with `free(): double free detected in tcache 2` instead of corrupting the free list.
 - **Hardened allocators.** Android has used **Scudo** for all [[native-code|native code]] since Android 11 (low-memory devices kept [[jemalloc|jemalloc]]). Scudo puts a checksum in every chunk header, tracks each chunk’s state so a double free is caught, and can quarantine freed chunks before reuse.
-- **Delaying reuse where it matters.** Chrome’s **MiraclePtr** (BackupRefPtr) replaces raw pointer fields in C++ classes with a `raw_ptr<T>` that keeps a hidden [[reference-count|reference count]] in the allocation. If memory is freed while such pointers still refer to it, the allocator poisons it and keeps it in quarantine until the count reaches zero. The use-after-free still happens, but it now reads poison instead of the attacker’s data. It shipped in Chrome 102 for the browser process on Windows and Android. Google estimated it would protect about half of the use-after-free bugs in that process, at a cost of 3.5–6.5% more memory there.
+- **Delaying reuse where it matters.** Chrome’s **MiraclePtr** (BackupRefPtr) replaces raw pointer fields in C++ classes with a `raw_ptr<T>` that keeps a hidden [[reference-count|reference count]] in the allocation. If memory is freed while such pointers still refer to it, the allocator poisons it and keeps it in quarantine until the count reaches zero. The use-after-free still happens, but it now reads poison instead of the attacker’s data. It shipped in Chrome 102 for the browser process on Windows and Android. In 2022 Google estimated it would protect about half of the use-after-free bugs in that process, at a cost of 3.5–6.5% more memory there.
 - **Hardware tags.** Arm’s Memory Tagging Extension (MTE) gives each 16-byte granule of memory a small tag and puts a matching tag in the pointer’s top bits. The CPU compares the two on every load and store. Re-tag a block when it is freed, and old pointers stop matching. Android 12 added kernel and allocator support.
 
 All of these are probabilistic or partial. MiraclePtr covers class fields, not every pointer. A tag can collide by chance. A quarantine eventually hands the memory out again. They raise the cost of exploitation without changing the language.
@@ -153,7 +153,7 @@ The book’s dangling pointer is now a compile error. A double free cannot be wr
 
 ::scene android
 
-Android gives the best public evidence of what changes when an organisation switches languages. Around 2019 the Android team began steering *new* development towards memory-safe languages, adding Rust for native code, and chose not to rewrite the existing C and C++. By Android 13 about 21% of new native code was Rust. The share of memory-safety vulnerabilities went:
+Android gives the best public evidence of what changes when an organisation switches languages. Around 2019 the Android team began steering *new* development towards memory-safe languages, adding Rust for native code, and chose not to rewrite the existing C and C++. By Android 13, in 2022, about 21% of new native code was Rust. The share of memory-safety vulnerabilities went:
 
 | year | memory-safety share of Android vulnerabilities |
 |---|---|
@@ -201,7 +201,8 @@ The book’s advice was to learn Purify and Valgrind and “wonder how you survi
 
 - Matt Miller, [*Trends, challenges, and strategic shifts in the software vulnerability mitigation landscape*](https://github.com/microsoft/MSRC-Security-Research/blob/master/presentations/2019_02_BlueHatIL/2019_01%20-%20BlueHatIL%20-%20Trends%2C%20challenge%2C%20and%20shifts%20in%20software%20vulnerability%20mitigation.pdf), BlueHat IL 2019: the slides with the 2006–2018 chart and root-cause breakdown.
 - MSRC, [*A proactive approach to more secure code*](https://www.microsoft.com/en-us/msrc/blog/2019/07/a-proactive-approach-to-more-secure-code), July 2019: Microsoft’s own summary of the 70% figure.
-- The Chromium Projects, [*Memory safety*](https://www.chromium.org/Home/chromium-security/memory-safety/): the 912-bug analysis and Chromium’s strategy.
+- The Chromium Projects, [*Memory safety*](https://www.chromium.org/Home/chromium-security/memory-safety/): the 912-bug analysis and Chromium’s strategy, [reported by ZDNet](https://www.zdnet.com/article/chrome-70-of-all-security-bugs-are-memory-safety-issues/) in May 2020.
+- Jeff Vander Stoep, [*Memory Safe Languages in Android 13*](https://security.googleblog.com/2022/12/memory-safe-languages-in-android-13.html), Google Security Blog, December 2022: the 21% and 35% figures.
 - Jeff Vander Stoep, Alex Rebert, [*Eliminating memory safety vulnerabilities at the source*](https://security.googleblog.com/2024/09/eliminating-memory-safety-vulnerabilities-Android.html), Google Security Blog, September 2024: the code-age argument.
 - Jeff Vander Stoep, [*Rust in Android: move fast and fix things*](https://blog.google/security/rust-in-android-move-fast-fix-things/), November 2025: the sub-20% figure, vulnerability density and rollback rates.
 - Konstantin Serebryany et al., [*AddressSanitizer: A Fast Address Sanity Checker*](https://www.usenix.org/conference/atc12/technical-sessions/presentation/serebryany), USENIX ATC 2012, and the [AddressSanitizer algorithm](https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm) page.

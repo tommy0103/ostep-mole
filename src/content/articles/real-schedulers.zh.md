@@ -65,7 +65,7 @@ Windows 最接近本书的 MLFQ。微软的文档描述了 32 个优先级，从
 :::fold 提升的内部：设备取值、等待计费，以及一个防饥饿的清扫者
 ::scene sweeper
 
-微软的公开文档只讲到上面这些规则，细节来自《Windows Internals》的作者们。这里的数字出自 David Solomon 和 Mark Russinovich 针对 Windows XP 与 Server 2003 内核的教学材料。后来的版本改过其中不少，请把它们当作设计思路的示例，而不是今天的常量。
+微软的公开文档只讲到上面这些规则，细节来自《Windows Internals》的作者们。这里的数字出自 David Solomon 和 Mark Russinovich 针对 Windows XP 与 Server 2003 内核的教学材料。
 
 **提升幅度取决于设备。** [[driver|驱动程序]]完成一个 I/O 请求时，会随完成通知一起传入一个优先级增量。常见取值是：磁盘、光驱、并口和显卡为 1，串口、网络、命名管道和邮槽为 2，键盘或鼠标为 6，声卡为 8。设备越可能有人在等，跳得越高。
 

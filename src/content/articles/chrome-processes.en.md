@@ -7,7 +7,7 @@ title: Your browser is an operating system for tabs
 
 Open a few tabs, then open your browser’s task manager (in Chrome it is under *More tools*). You will not see one program. You will see a list: a browser process, a GPU process, utility processes such as the network service, one renderer per site, a few for extensions. Each line has a [[pid|process ID]], a memory figure and a CPU column. It is chapter 4’s process list, run by an application instead of a kernel.
 
-It was not always like this. When Chrome first shipped, in September 2008, its multi-process design was the headline feature. The Chromium team’s design document recalls the problem it answered: in the browsers of the time, a single bug in a web page or plug-in could take down the whole browser and every open tab with it. Ten years later the design changed again. In January 2018 the [[spectre|Spectre and Meltdown]] attacks showed that code running inside a process could read memory it was never meant to see. Chrome 67 responded by turning on **Site Isolation** for desktop users: every site got renderer processes of its own. The Chrome team accepted a measured 9–13% increase in total memory to do it.
+It was not always like this. When Chrome first shipped, in September 2008, its multi-process design was the headline feature. The Chromium team’s design document recalls the problem it answered: in the browsers of the time, a single bug in a web page or plug-in could take down the whole browser and every open tab with it. Ten years later the design changed again. In January 2018 the [[spectre|Spectre and Meltdown]] attacks showed that code running inside a process could read memory it was never meant to see. Chrome 67 responded by turning on **Site Isolation** for desktop users: every site got renderer processes of its own. The Chrome team accepted a 9–13% increase in total memory to do it (measured in October 2018).
 
 That is an expensive decision for a product whose memory use is a running joke. This piece explains why it was right, and why the answer was a *process* rather than a [[thread|thread]] or a cleverer language runtime.
 
@@ -62,7 +62,7 @@ On **Linux** there are two layers. A [[namespace|namespace]] layer puts the rend
 
 ::scene zygote
 
-Linux adds one more process trick. Renderers are not started with [[fork-exec|`exec()`]]. At startup the browser launches a **[[zygote|zygote]]** process, which loads and initializes the common libraries once and then waits. Each new renderer is a `fork()` of the zygote and shares its initialized pages [[copy-on-write|copy-on-write]], which the Chromium docs estimate saves up to about 8 MB per process. It is the same fork trick that [Redis uses for snapshots](/notes/fork-redis), here used to make processes cheaper.
+Linux adds one more process trick. Renderers are not started with [[fork-exec|`exec()`]]. At startup the browser launches a **[[zygote|zygote]]** process, which loads and initializes the common libraries once and then waits. Each new renderer is a `fork()` of the zygote and shares its initialized pages [[copy-on-write|copy-on-write]], which the Chromium docs estimate saves up to about 8 MB per process (2017). It is the same fork trick that [Redis uses for snapshots](/notes/fork-redis), here used to make processes cheaper.
 
 ::scene ipc
 
@@ -124,7 +124,7 @@ Reis, Moshchuk and Oskov reported these figures from Chrome’s desktop users in
 - **Latency.** Page loads slowed by at most 2.25%, at the 25th percentile. The browser hides some process start-up time by keeping a **spare** renderer already running, unlocked, ready to be assigned to whatever site is visited next.
 - **Microbenchmarks are worse.** Loading single sites in a clean browser, one page that needed 10 processes used 89% more memory. Real users keep several tabs open, which gives process sharing more to work with.
 
-On Android, where memory is tighter, Chrome 77 turned on a partial form of Site Isolation for devices with at least about 2 GB of RAM. It isolates only sites the user logs into. The Chromium project reports a memory cost of about 3–5% for that configuration.
+On Android, where memory is tighter, Chrome 77 turned on a partial form of Site Isolation for devices with at least about 2 GB of RAM. It isolates only sites the user logs into. The Chromium project reported a memory cost of about 3–5% for that configuration in 2019.
 :::
 
 The most useful observation is that more processes did not mean proportionally more memory. Site Isolation divided the same work among more, smaller processes. The fixed cost of a process, its page tables, kernel state and runtime start-up, is real but far smaller than the pages it renders.

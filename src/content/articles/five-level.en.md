@@ -136,7 +136,7 @@ Total: 5 host walks × 4 references = 20, plus 4 guest entries = 24. In general 
 Two things follow from the formula. Making the host’s pages bigger shortens *m* for every one of the *n* + 1 host walks, which is why the host’s huge pages pay off more than the guest’s. And going to five levels in both dimensions turns 24 into 35.
 :::
 
-The worst case is rare for the same reason as before: caches. Bhargava and his colleagues started from AMD’s existing page walk cache and extended it to hold entries from the nested dimension too. For their mix of server and [[spec-benchmarks|SPEC]] workloads, that improved guest performance by 15% to 38%, and caching nested translations directly added another 3% to 7%. Real processors keep such caches, and a TLB hit skips the whole grid anyway, because the TLB caches the final guest-virtual-to-host-physical translation.
+The worst case is rare for the same reason as before: caches. Bhargava and his colleagues started from AMD’s existing page walk cache and extended it to hold entries from the nested dimension too. For their 2008 mix of server and [[spec-benchmarks|SPEC]] workloads, that improved guest performance by 15% to 38%, and caching nested translations directly added another 3% to 7%. Real processors keep such caches, and a TLB hit skips the whole grid anyway, because the TLB caches the final guest-virtual-to-host-physical translation.
 
 ::scene hostpages
 

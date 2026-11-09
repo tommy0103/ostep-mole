@@ -121,7 +121,7 @@ Its central idea is **free-list sharding**. Instead of one large free list per s
 - `local_free`, where the owning thread pushes blocks it frees;
 - `xthread_free`, where *other* threads push blocks they free, with a single atomic [[atomic-cas|compare-and-swap]].
 
-So the `malloc` fast path pops from a list only this thread touches, and every so often the allocator leaves it to fold `local_free` and `xthread_free` back into `free`, a rhythm the authors call *temporal cadence*. Their report measures mimalloc 7% faster than tcmalloc and 14% faster than jemalloc on Redis. Version 3, the current line, simplified the lock-free design.
+So the `malloc` fast path pops from a list only this thread touches, and every so often the allocator leaves it to fold `local_free` and `xthread_free` back into `free`, a rhythm the authors call *temporal cadence*. Their 2019 report measures mimalloc 7% faster than tcmalloc and 14% faster than jemalloc on Redis. Version 3, the current line, simplified the lock-free design.
 
 :::fold Why three free lists and not one
 A single free list per page would need to be shared by `malloc` and `free` on the owning thread, and by `free` on any other thread. That forces atomic operations on every call, even the common case where one thread allocates and frees its own objects.

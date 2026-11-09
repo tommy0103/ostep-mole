@@ -125,7 +125,7 @@ The difference comes from how much arithmetic each byte read from memory support
 - In **decode**, each request contributes one new token per iteration. The GPU must read every weight matrix of the model from memory to multiply it by a handful of vectors, one per request. Very little arithmetic is done per byte read, so memory bandwidth is the limit. Adding requests to the batch reuses the same weight reads, which is why batching decode is nearly free until something else runs out.
 - In **prefill**, one request contributes all its prompt tokens at once. The same weight reads are now multiplied by thousands of vectors. Arithmetic per byte is high, and the GPU’s compute units become the limit.
 
-What usually runs out first for decode is memory for KV caches. Anyscale estimated about 1 MB of state per token for a 13-billion-parameter model. A few thousand tokens of context per request across a large batch fill a GPU quickly. This is why admission in LLM serving is mainly a memory question, and why the [[paging|paging]] ideas of chapter 18 ended up on GPUs.
+What usually runs out first for decode is memory for KV caches. In 2023 Anyscale estimated about 1 MB of state per token for a 13-billion-parameter model. A few thousand tokens of context per request across a large batch fill a GPU quickly. This is why admission in LLM serving is mainly a memory question, and why the [[paging|paging]] ideas of chapter 18 ended up on GPUs.
 :::
 
 ::scene oracle

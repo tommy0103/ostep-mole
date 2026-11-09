@@ -108,7 +108,7 @@ sysctl hw.pagesize        # 仅限 macOS
 
 在 x86-64 上，答案永远是 4096。硬件的基础页是 4 KiB，往页表上走一层和两层，分别是第 23 章讲到的 2 MiB 和 1 GiB [[huge-page|大页]]。四级、每级 9 位，再加 12 位偏移，合起来是 48 位虚拟地址。再往上会发生什么，见[五级页表那篇](/notes/five-level)。
 
-在 64 位 Arm 上，硬件提供三种*转换粒度*（translation granule）供选：4、16 或 64 KiB，由操作系统挑一种。Apple 芯片上 macOS 的原生 arm64 进程看到的是 16 KiB 的页；同样这些 Mac 上的 [[asahi|Asahi Linux]] 也用 16 KiB，其文档解释说，原因是这些机器的 [[iommu|IOMMU]] 只支持 16 KiB 的页。而同一块芯片上的 Linux [[hypervisor|虚拟机]]仍然可以用 4 KiB，本文开头那台机器就是这样。Android 15 开始支持使用 16 KiB 页的设备。按 Google 的初步测试，这类设备平均多用一点内存，在内存紧张时应用启动平均快 3.16%，开机平均快约 8%（约 950 毫秒）。
+在 64 位 Arm 上，硬件提供三种*转换粒度*（translation granule）供选：4、16 或 64 KiB，由操作系统挑一种。Apple 芯片上 macOS 的原生 arm64 进程看到的是 16 KiB 的页；同样这些 Mac 上的 [[asahi|Asahi Linux]] 也用 16 KiB，其文档解释说，原因是这些机器的 [[iommu|IOMMU]] 只支持 16 KiB 的页。而同一块芯片上的 Linux [[hypervisor|虚拟机]]仍然可以用 4 KiB，本文开头那台机器就是这样。Android 15 开始支持使用 16 KiB 页的设备。按 Google 的初步测试（2024–2025 年发布），这类设备平均多用一点内存，在内存紧张时应用启动平均快 3.16%，开机平均快约 8%（约 950 毫秒）。
 
 为什么要把页变大？第 19、20 章里的一切都随页大小缩放：
 
@@ -321,5 +321,6 @@ Linux 还暴露了更深的一层：`/proc/<pid>/pagemap`，一个二进制文�
 - [Documentation for /proc/sys/vm](https://docs.kernel.org/admin-guide/sysctl/vm.html)：`overcommit_memory` 与 `drop_caches`。
 - [getrusage(2)](https://man7.org/linux/man-pages/man2/getrusage.2.html)、[fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html) 和 [vdso(7)](https://man7.org/linux/man-pages/man7/vdso.7.html) 手册页。
 - [Support 16 KB page sizes](https://developer.android.com/guide/practices/page-sizes)：Android 的指南，附 Google 的测量数据。
+- [Prepare your apps for Google Play's 16 KB page size compatibility requirement](https://android-developers.googleblog.com/2025/05/prepare-play-apps-for-devices-with-16kb-page-size.html)（Android Developers Blog，2025 年 5 月）。
 - [Asahi Linux: broken software](https://asahilinux.org/docs/sw/broken-software/)：为什么 Apple 芯片上的 Linux 使用 16 KiB 页。
 - Brendan Gregg：[perf examples](https://www.brendangregg.com/perf.html)。

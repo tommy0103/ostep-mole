@@ -70,8 +70,8 @@ const scene: SceneDef = {
     entropy: {
       title: { en: 'How much randomness?', zh: '到底有多少随机性？' },
       caption: {
-        en: 'On x86-64 the mmap base moves by a random number of pages, 28 bits by default: 1 TiB of possible placements. Much of ASLR’s reputation as a weak defence comes from the old 32-bit figure of 256 positions.',
-        zh: '在 x86-64 上，mmap 基址被平移随机数量的页，默认 28 位，也就是 1 TiB 的可能放置范围。ASLR “是个弱防御”的名声，很大程度上来自 32 位时代那 256 个位置。',
+        en: 'On x86-64 the mmap base moves by a random number of pages, 28 bits by default: 1 TiB of possible placements. Much of ASLR’s reputation as a weak defence comes from 32-bit systems, which had far fewer bits to randomize.',
+        zh: '在 x86-64 上，mmap 基址被平移随机数量的页，默认 28 位，也就是 1 TiB 的可能放置范围。ASLR “是个弱防御”的名声，很大程度上来自可用随机位少得多的 32 位系统。',
       },
     },
     pie: {

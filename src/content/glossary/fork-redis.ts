@@ -32,6 +32,13 @@ const terms: Record<string, Term> = {
       zh: '硬件虚拟机：Amazon EC2 上借助处理器硬件虚拟化支持来运行客户机的实例类型。较早的另一种做法是 Xen [[hypervisor|虚拟机监控器]]上的半虚拟化（PV）客户机：它们的内核经过修改，页表更新这类特权操作要请监控器代劳。',
     },
   },
+  sqlite: {
+    title: { en: 'SQLite', zh: 'SQLite' },
+    body: {
+      en: 'An SQL database engine that is a library inside your program. There is no separate server process, and a whole database, with its tables and indexes, lives in one ordinary disk file.',
+      zh: '一个以库的形式运行在你程序内部的 SQL 数据库引擎。它没有单独的服务器进程，整个数据库连同表和索引都放在一个普通的磁盘文件里。',
+    },
+  },
   'ec2-xen': {
     title: { en: 'Xen and EC2’s “old” instance types', zh: 'Xen 与 EC2 的“旧实例类型”' },
     body: {

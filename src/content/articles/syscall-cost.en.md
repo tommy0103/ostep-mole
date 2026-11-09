@@ -92,10 +92,10 @@ Meltdown let user code read kernel memory through speculative execution, as long
 
 ::scene pcid
 
-The kernel’s documentation puts writes to `CR3` “on the order of a hundred cycles.” That is the direct part. The larger part is indirect: a `CR3` write normally flushes the TLB, so without help every system call would throw away every cached translation. The help is x86’s **[[pcid|PCID]]**, process-context identifiers, which tag TLB entries so user and kernel translations can coexist. That story belongs to chapter 19 and has [its own note](/notes/pcid). The point here: with PCID, KPTI is a tax on each crossing. Without it, KPTI wipes out your TLB on every crossing.
+The kernel’s documentation (2018) puts writes to `CR3` “on the order of a hundred cycles.” That is the direct part. The larger part is indirect: a `CR3` write normally flushes the TLB, so without help every system call would throw away every cached translation. The help is x86’s **[[pcid|PCID]]**, process-context identifiers, which tag TLB entries so user and kernel translations can coexist. That story belongs to chapter 19 and has [its own note](/notes/pcid). The point here: with PCID, KPTI is a tax on each crossing. Without it, KPTI wipes out your TLB on every crossing.
 
 :::fold How Gregg measured it, and how 800% happens
-Gregg’s analysis ran on AWS instances with Linux 4.14, using a microbenchmark that varied the system-call rate and the working-set size separately. He listed five factors that set the overhead: system-call rate, context-switch rate, [[page-fault|page-fault]] rate, working-set size, and cache access pattern.
+Gregg’s 2018 analysis ran on AWS instances with Linux 4.14, using a microbenchmark that varied the system-call rate and the working-set size separately. He listed five factors that set the overhead: system-call rate, context-switch rate, [[page-fault|page-fault]] rate, working-set size, and cache access pattern.
 
 Some of his numbers:
 
@@ -115,7 +115,7 @@ Some system calls only read a value the kernel already knows. The current time i
 
 The **[[vdso|vDSO]]**, the virtual dynamic shared object, is the kernel’s answer. At every [[fork-exec|`execve()`]] the kernel maps a small [[elf|ELF]] library into the new process and announces its (randomized) address in the [[auxv|auxiliary vector]]. The [[libc|C library]] routes calls such as `clock_gettime()` to it instead of trapping; on x86-64 it exports `clock_gettime`, `gettimeofday`, `time` and `getcpu`. Next to the code sits a read-only data page where the kernel publishes the current clock parameters. The vDSO function reads that page, typically reads the CPU’s [[tsc|timestamp counter]], and does the arithmetic in user mode. In the [[man-page|man page]]’s words, the call “changes from a system call to a normal function call and a few memory accesses.”
 
-This is still limited direct execution, with the limit moved: the process may *read* the kernel’s published values but not write them. If no fast path is possible, for example because the clock source cannot be read from user mode, the vDSO function quietly makes the real system call. The idea keeps spreading: Linux 6.11 added a vDSO `getrandom()` by Jason Donenfeld, who reported it “around 15x” faster for 32-bit values.
+This is still limited direct execution, with the limit moved: the process may *read* the kernel’s published values but not write them. If no fast path is possible, for example because the clock source cannot be read from user mode, the vDSO function quietly makes the real system call. The idea keeps spreading: Linux 6.11 (2024) added a vDSO `getrandom()` by Jason Donenfeld, who reported it “around 15x” faster for 32-bit values.
 
 ::scene batch
 
@@ -224,7 +224,7 @@ Build it with `cc -O2 cost.c` and pin it to one CPU with `taskset -c 0 ./a.out`.
 - Look at `/sys/devices/system/cpu/vulnerabilities/`, which lists your CPU’s known flaws and the active mitigations: what your entry path is paying for.
 - On a throwaway test machine, boot once with `nopti` and compare. This removes the Meltdown protection; never do it where untrusted code runs.
 
-Numbers vary a lot with CPU, kernel, mitigations and virtualization, which is why it is worth measuring. In a VM whose clock source cannot be read through the vDSO, the “fast” path falls back to the trap.
+In a VM whose clock source cannot be read through the vDSO, the “fast” path falls back to the trap.
 :::
 
 ::scene surface

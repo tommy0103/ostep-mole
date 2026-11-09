@@ -42,7 +42,7 @@ With KPTI every process has two top-level page tables:
 - The **kernel** copy maps everything: the process’s user memory and the whole kernel.
 - The **user** copy maps the process’s memory plus only the kernel data needed to get in and out. The kernel documentation lists the entry and exit code, the [[idt|interrupt descriptor table]] and a [[per-cpu|per-CPU area]] that holds the entry stacks.
 
-Every entry into the kernel, whether a system call, an interrupt or an exception, now starts by loading CR3 with the kernel copy. Every return to user space ends by loading CR3 with the user copy. The kernel documentation puts a move to CR3 “on the order of a hundred cycles”. That is a real cost, but not the big one.
+Every entry into the kernel, whether a system call, an interrupt or an exception, now starts by loading CR3 with the kernel copy. Every return to user space ends by loading CR3 with the user copy. The kernel documentation (2018) puts a move to CR3 “on the order of a hundred cycles”. That is a real cost, but not the big one.
 
 ::scene flush
 
@@ -156,7 +156,7 @@ Gregg used [[perf-counter|hardware performance counters]] to measure the share o
 
 The second row is the flush-on-every-crossing problem: walk cycles rise more than tenfold for data and more than two-hundredfold for instructions. The third row is the book’s ASID at work. With the two halves tagged, data-TLB walk cycles fall back to the unmitigated level. The fourth row adds [huge pages](/notes/huge-pages): with more reach, the data walks disappear entirely.
 
-He also checked his estimates against real workloads. For a MySQL OLTP benchmark at about 75,000 system calls per second per CPU on 8 CPUs, he estimated about 4% overhead and measured 5%. For a stress test at 210,000 system calls per second per CPU he estimated under 12% and measured 25%. His worst synthetic case was over 800%, with [[instructions-per-cycle|instructions per cycle]] falling from 0.86 to 0.10. Treat these as measurements of particular systems, not constants.
+He also checked his estimates against real workloads. For a MySQL OLTP benchmark at about 75,000 system calls per second per CPU on 8 CPUs, he estimated about 4% overhead and measured 5%. For a stress test at 210,000 system calls per second per CPU he estimated under 12% and measured 25%. His worst synthetic case was over 800%, with [[instructions-per-cycle|instructions per cycle]] falling from 0.86 to 0.10.
 :::
 
 The rest of the cost is the kernel crossing itself, which got more expensive and stayed that way. [The note on system call cost](/notes/syscall-cost) takes up that side of the story.
@@ -169,7 +169,7 @@ The rest of the cost is the kernel crossing itself, which got more expensive and
 
 ::scene vm
 
-**The cloud had to pass the flag through.** A virtual machine sees only the CPU features its [[hypervisor|hypervisor]] exposes. Tene’s note reported that most KVM guests he checked did not have the `pcid` flag, that all the VMware guests did, and that AWS instances were split about half and half. A guest without the flag paid the full flush cost on hardware that could have avoided it.
+**The cloud had to pass the flag through.** A virtual machine sees only the CPU features its [[hypervisor|hypervisor]] exposes. Tene’s 2018 note reported that most KVM guests he checked did not have the `pcid` flag, that all the VMware guests did, and that AWS instances were split about half and half. A guest without the flag paid the full flush cost on hardware that could have avoided it.
 
 :::fold Checking a machine for yourself
 Three files tell you where a Linux machine stands. These commands read them and change nothing.

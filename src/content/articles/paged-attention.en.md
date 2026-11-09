@@ -164,7 +164,7 @@ Recomputation works because the KV cache is derived data: like a [[clean-page|cl
 
 ## What the paper actually measured
 
-The headline, 2–4× higher throughput than FasterTransformer and [[orca|Orca]] at the same latency, is true and also needs reading carefully.
+The headline is 2–4× higher throughput than FasterTransformer and [[orca|Orca]] at the same latency.
 
 The setup used OPT-13B, 66B and 175B, plus [[llama|LLaMA-13B]] for the shared-prefix experiment, on Google Cloud A100s: one 40 GB GPU for 13B, four for 66B, eight 80 GB GPUs for 175B. Workloads were traces from the [[sharegpt-alpaca|ShareGPT and Alpaca]] datasets with [[poisson|Poisson arrivals]] at varying rates, run for one hour (15 minutes for 175B, to limit cost). The metric was *normalized latency*: each request's end-to-end latency divided by its output length, averaged. Throughput is, roughly, the request rate a system sustains before that latency shoots up.
 
