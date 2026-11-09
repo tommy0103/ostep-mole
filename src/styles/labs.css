@@ -1,0 +1,173 @@
+/* Shared vocabulary for the interactive labs */
+.lab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+}
+.lab-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+@media (min-width: 760px) {
+  .lab-grid.two {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .lab-grid.side {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  }
+}
+.lab-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+.stat {
+  display: grid;
+  gap: 0;
+  min-width: 92px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--bg);
+}
+.stat .k {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.stat .v {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.stat.good .v {
+  color: var(--ok);
+}
+.stat.bad .v {
+  color: var(--bad);
+}
+.caption-line {
+  min-height: 1.6em;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.caption-line:lang(zh) {
+  font-family: var(--font-zh);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+}
+.p0 {
+  --pc: var(--p0);
+}
+.p1 {
+  --pc: var(--p1);
+}
+.p2 {
+  --pc: var(--p2);
+}
+.p3 {
+  --pc: var(--p3);
+}
+.p4 {
+  --pc: var(--p4);
+}
+.chip[class*='p'] {
+  background: var(--pc);
+}
+svg.viz {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--font-mono);
+}
+svg.viz text {
+  fill: var(--ink-2);
+  font-size: 11px;
+}
+svg.viz .axis line,
+svg.viz .axis path {
+  stroke: var(--rule-strong);
+}
+svg.viz .axis text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.mono-table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+.mono-table th,
+.mono-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+.mono-table th {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 11px;
+}
+.mono-table tr.now td {
+  background: var(--accent-soft);
+}
+.bits {
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bits span {
+  width: 1.45em;
+  text-align: center;
+  padding: 3px 0;
+  border-right: 1px solid var(--rule);
+  transition: background 0.3s, color 0.3s;
+}
+.bits span:last-child {
+  border-right: 0;
+}
+.pulse {
+  animation: pulse 0.6s var(--ease);
+}
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

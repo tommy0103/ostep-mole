@@ -1,0 +1,112 @@
+/*
+ * Design tokens. Content first: a quiet paper/ink palette, one accent per Part.
+ * Part I (Virtualization) uses a cool "phosphor blue"; process colours are shared by every lab
+ * so that "process A" always looks the same across chapters.
+ */
+:root {
+  --font-serif: 'Source Serif 4', 'Source Serif Pro', Georgia, 'Noto Serif SC', serif;
+  /* self-hosted (src/styles/fonts.css): Chinese in 975 Hei */
+  --font-sans: 'IBM Plex Sans', '975 Hei', -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-zh: '975 Hei', -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Source Han Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, '975 Hei', 'PingFang SC', monospace;
+
+  --bg: #f7f6f2;
+  --bg-elev: #ffffff;
+  --bg-sunk: #efede6;
+  --ink: #1c1d1f;
+  --ink-2: #44464b;
+  --muted: #74767c;
+  --faint: #a4a5a8;
+  --rule: #e1ded4;
+  --rule-strong: #cdc9bc;
+  --code-bg: #f0eee7;
+  --selection: #dbe4ff;
+
+  --accent: #2f5bd3;
+  --accent-ink: #2447aa;
+  --accent-soft: #e6ecfb;
+  --ok: #2f8a57;
+  --warn: #b7791f;
+  --bad: #c2413b;
+
+  /* process palette (A, B, C, D, E) — muted but distinct, consistent across labs */
+  --p0: #3a6ff0;
+  --p1: #e0803a;
+  --p2: #2fa37a;
+  --p3: #c2508f;
+  --p4: #8a6fd8;
+  --p-idle: #c9c6bc;
+
+  --radius: 6px;
+  --shadow: 0 1px 2px rgba(20, 20, 20, 0.04), 0 4px 18px rgba(20, 20, 20, 0.05);
+  --topbar-h: 52px;
+  --measure: 40rem;
+  --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #121315;
+    --bg-elev: #191a1d;
+    --bg-sunk: #0d0e10;
+    --ink: #e7e5df;
+    --ink-2: #c4c2bc;
+    --muted: #8f9096;
+    --faint: #5f6066;
+    --rule: #2a2b2f;
+    --rule-strong: #3a3b40;
+    --code-bg: #1b1c20;
+    --selection: #2b3a66;
+    --accent: #8ea8ff;
+    --accent-ink: #a9bcff;
+    --accent-soft: #1d2540;
+    --ok: #59c08a;
+    --warn: #e2a64b;
+    --bad: #ef6b63;
+    --p0: #6f93ff;
+    --p1: #f29a55;
+    --p2: #4cc596;
+    --p3: #e07ab0;
+    --p4: #a991f0;
+    --p-idle: #3b3c41;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px rgba(0, 0, 0, 0.25);
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #121315;
+  --bg-elev: #191a1d;
+  --bg-sunk: #0d0e10;
+  --ink: #e7e5df;
+  --ink-2: #c4c2bc;
+  --muted: #8f9096;
+  --faint: #5f6066;
+  --rule: #2a2b2f;
+  --rule-strong: #3a3b40;
+  --code-bg: #1b1c20;
+  --selection: #2b3a66;
+  --accent: #8ea8ff;
+  --accent-ink: #a9bcff;
+  --accent-soft: #1d2540;
+  --ok: #59c08a;
+  --warn: #e2a64b;
+  --bad: #ef6b63;
+  --p0: #6f93ff;
+  --p1: #f29a55;
+  --p2: #4cc596;
+  --p3: #e07ab0;
+  --p4: #a991f0;
+  --p-idle: #3b3c41;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px rgba(0, 0, 0, 0.25);
+}
+
+/* Each Part may redefine its accent. Concurrency and Persistence will get their own. */
+[data-part='concurrency'] {
+  --accent: #b5532c;
+  --accent-ink: #94411f;
+  --accent-soft: #f8e9e1;
+}
+[data-part='persistence'] {
+  --accent: #2c7d6b;
+  --accent-ink: #1f5f51;
+  --accent-soft: #e2f1ec;
+}

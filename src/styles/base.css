@@ -1,0 +1,204 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--topbar-h) + 16px);
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: var(--selection);
+}
+a {
+  color: var(--accent-ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+a:hover {
+  color: var(--accent);
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+/* a glossary term in our writing (RunsText): click to unfold its card */
+button.term {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted color-mix(in srgb, var(--accent) 70%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.22em;
+  border-radius: 2px;
+}
+button.term:hover {
+  color: var(--accent-ink);
+}
+button.term.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  text-decoration-style: solid;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+img {
+  max-width: 100%;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+/* footnote markers and exponents from the book: keep the line height steady */
+sup,
+sub {
+  font-size: 0.7em;
+  line-height: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* small UI primitives shared by labs */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 5px;
+  background: var(--bg-elev);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+:root[data-theme='dark'] .btn.primary,
+:root:not([data-theme='light']) .btn.primary {
+  color: #0d1020;
+}
+:root[data-theme='light'] .btn.primary {
+  color: #fff;
+}
+.btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.seg button + button {
+  border-left: 1px solid var(--rule);
+}
+.seg button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+input[type='range'] {
+  accent-color: var(--accent);
+}
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.field input[type='number'],
+.field input[type='text'],
+.field select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg-elev);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  padding: 3px 6px;
+  width: 4.5em;
+}
+.field input[type='text'] {
+  width: auto;
+}
+.field select {
+  width: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Book figures are black-on-white scans/renders: invert them in dark mode.
+   (Kept global: Vue's scoped :global() would apply the filter to <html> itself.) */
+:root[data-theme='dark'] .fig-img {
+  background: #e9e7e1;
+  filter: invert(0.9) hue-rotate(180deg);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .fig-img {
+    background: #e9e7e1;
+    filter: invert(0.9) hue-rotate(180deg);
+  }
+}

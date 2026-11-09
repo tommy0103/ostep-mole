@@ -1,0 +1,35 @@
+{
+  "name": "ostep-interactive",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "An interactive, bilingual (EN/中文) web edition of Operating Systems: Three Easy Pieces",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc --noEmit",
+    "content:fetch": "node tools/content/fetch.mjs",
+    "content:build": "node tools/content/build.mjs",
+    "fonts:build": "node tools/fonts/build.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.45",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.1.0",
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^31.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.3.14",
+    "wawoff2": "^2.0.1"
+  }
+}

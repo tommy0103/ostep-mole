@@ -1,0 +1,21 @@
+{
+  "//": "Outlines that only ever appear in fonts with a broken ToUnicode map, so glyphdict.mjs cannot learn them. Read from context; see glyphdict.mjs.",
+  "SimSun": {
+    "44b5e5f31af48c0e": "擅",
+    "bcab4b7e39c44294": "行",
+    "7f2de0049f20b3a6": "动",
+    "0eb3cbb34a7db92d": "呼",
+    "79f1d7b1a6f3d19b": "鲜",
+    "18cf53bd6e4c6fe6": "乡",
+    "ae0fcac0c6cb95eb": "刺",
+    "59e36a4c95bb5199": "瞒",
+    "49d30124428ab196": "财",
+    "2a875f2557143ab8": "迷",
+    "db2080aade6234ea": "惑",
+    "1e39ee9ee8724375": "金",
+    "4be34f52c1db36a7": "星",
+    "e4860953af8a15db": "球",
+    "ef16ee048eebc8ca": "坚",
+    "517b6815f618b416": "夸"
+  }
+}

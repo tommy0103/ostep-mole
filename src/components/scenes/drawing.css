@@ -1,0 +1,193 @@
+/*
+ * The shared vocabulary of scene drawings (docs/scenes.md). Every drawing's root <svg> has the
+ * class `scene-drawing`; these rules apply inside it only.
+ */
+.scene-drawing {
+  width: 100%;
+  height: auto;
+  display: block;
+  font-family: var(--font-sans);
+}
+.scene-drawing:lang(zh) {
+  font-family: var(--font-zh);
+}
+
+/* a part fades in and out with the state */
+.scene-drawing .part {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.scene-drawing .part.on {
+  opacity: 1;
+}
+
+/* boxes: a component, a process, a structure */
+.scene-drawing .box {
+  fill: var(--bg-elev);
+  stroke: var(--rule-strong);
+  stroke-width: 1.2;
+  transition: stroke 0.3s, fill 0.3s, opacity 0.3s;
+}
+.scene-drawing .box.strong {
+  stroke: var(--ink-2);
+  stroke-width: 1.6;
+}
+/* the kernel, hardware, a filter: the floor things stand on */
+.scene-drawing .box.floor {
+  fill: var(--bg-sunk);
+}
+.scene-drawing .box.gate {
+  fill: var(--bg-sunk);
+  stroke: var(--ink-2);
+}
+.scene-drawing .dead {
+  opacity: 0.35;
+}
+/* a boundary drawn around things (a sandbox, a namespace, a region) */
+.scene-drawing .outline {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+}
+.scene-drawing .outline.warn {
+  stroke: var(--warn);
+  stroke-width: 1.6;
+}
+
+/* lines: a relation (link), a flow that happens (call), a refused or harmful one (danger) */
+.scene-drawing .link {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.1;
+  stroke-dasharray: 3 3;
+  transition: opacity 0.35s ease;
+}
+.scene-drawing .link.solid {
+  stroke: var(--ink-2);
+  stroke-dasharray: none;
+}
+.scene-drawing .call {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.4;
+}
+.scene-drawing .danger {
+  fill: none;
+  stroke: var(--p3);
+  stroke-width: 1.6;
+}
+.scene-drawing .arrowhead {
+  fill: var(--ink-2);
+}
+.scene-drawing .gone {
+  opacity: 0;
+}
+
+/* things that move along a path (with <animateMotion>, only when !still) */
+.scene-drawing .dot {
+  fill: var(--ink-2);
+}
+.scene-drawing .dot.msg {
+  fill: var(--accent);
+}
+.scene-drawing .dot.bad {
+  fill: var(--p3);
+}
+.scene-drawing .lit .dot {
+  fill: var(--accent);
+}
+
+/* fills: the process colours shared by every lab (process A is always --p0), and ok/warn */
+.scene-drawing .p0 { fill: var(--p0); }
+.scene-drawing .p1 { fill: var(--p1); }
+.scene-drawing .p2 { fill: var(--p2); }
+.scene-drawing .p3 { fill: var(--p3); }
+.scene-drawing .p4 { fill: var(--p4); }
+.scene-drawing .ok { fill: var(--ok); }
+.scene-drawing .muted-fill { fill: var(--rule-strong); }
+.scene-drawing .sunk { fill: var(--bg-sunk); stroke: var(--rule-strong); }
+.scene-drawing .on-fill { fill: #fff; }
+
+/* words */
+.scene-drawing .lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+.scene-drawing .sub,
+.scene-drawing .tag {
+  font-size: 9.5px;
+  fill: var(--muted);
+}
+.scene-drawing .tag.hi {
+  fill: var(--ink-2);
+  font-weight: 600;
+}
+.scene-drawing .bad-text {
+  fill: var(--p3);
+}
+.scene-drawing .code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--ink-2);
+}
+.scene-drawing .big {
+  font-size: 14px;
+  font-weight: 700;
+}
+.scene-drawing .c {
+  text-anchor: middle;
+}
+.scene-drawing .end {
+  text-anchor: end;
+}
+
+/* a part the reader asked about */
+.scene-drawing .lit .box,
+.scene-drawing .lit .outline {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.scene-drawing .lit .box {
+  fill: var(--accent-soft);
+}
+.scene-drawing .lit .link,
+.scene-drawing .lit .call {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.scene-drawing .lit .cell {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.scene-drawing .lit .tag,
+.scene-drawing .lit .sub {
+  fill: var(--accent-ink);
+}
+
+/* motion */
+.scene-drawing .shake {
+  animation: sd-shake 0.45s ease-in-out 0.2s 2;
+}
+@keyframes sd-shake {
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+.scene-drawing .march {
+  stroke-dasharray: 4 3;
+  animation: sd-march 0.9s linear infinite;
+}
+@keyframes sd-march {
+  to { stroke-dashoffset: -14; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-drawing .part,
+  .scene-drawing .box {
+    transition: none;
+  }
+  .scene-drawing .march,
+  .scene-drawing .shake {
+    animation: none;
+  }
+}
