@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useDrawing, type DrawingProps } from '../drawing'
 import TrapDemo from './TrapDemo.vue'
 import RingDemo from './RingDemo.vue'
+import MeltdownDemo from './MeltdownDemo.vue'
+import VdsoDemo from './VdsoDemo.vue'
 
 /**
  * The running figure of the system-call article: a program above the user/kernel boundary, the trap
@@ -17,12 +19,15 @@ const BASE = ['program', 'gate', 'handler', 'boundary']
 const RINGS = ['rings', 'sq', 'cq', 'kside']
 const SHOW: Record<string, string[]> = {
   overview: [...BASE, 'trap', ...CPU, 'vdso', ...RINGS],
+  meltdown: ['program', 'boundary', 'gate', 'handler', 'onetable', 'leak', 'samecr3'],
   account: [...BASE, 'trap', 'acct'],
   trap: [...BASE, 'trap', 'regs', 'seq'],
   indirect: [...BASE, 'trap', ...CPU, 'legend', 'graph'],
   kpti: [...BASE, 'trap', ...CPU, 'kptitables'],
   pcid: [...BASE, 'trap', ...CPU, 'kptitables', 'legend'],
+  vvar: ['boundary', 'vvarmap'],
   vdso: [...BASE, 'vdso', 'publish', 'notrap'],
+  compare: ['boundary', 'cmp'],
   batch: [...BASE, 'trap', 'packet', 'list'],
   rings: [...BASE, 'trap', ...RINGS, 'onetrap'],
   sqpoll: [...BASE, ...RINGS, 'notrap'],
@@ -45,6 +50,7 @@ const PANELS = computed(() => [
     note: props.state === 'indirect' ? L('displaced', '被挤掉') : props.state === 'pcid' ? L('tags keep both', '有标签，两边都留') : '',
   },
 ])
+const PROCS = [14, 128, 242]
 const isSq = computed(() => props.state === 'sqpoll')
 const isSurface = computed(() => props.state === 'surface')
 const SEQ = computed(() => [
@@ -67,6 +73,8 @@ const REGS = computed(() => [
 <template>
   <TrapDemo v-if="demo && state === 'trap'" :step="step ?? 0" :lang="lang" />
   <RingDemo v-else-if="demo && state === 'rings'" :step="step ?? 0" :lang="lang" />
+  <VdsoDemo v-else-if="demo && state === 'vdso'" :step="step ?? 0" :lang="lang" />
+  <MeltdownDemo v-else-if="demo && state === 'meltdown'" :step="step ?? 0" :lang="lang" />
   <svg v-else class="scene-drawing" :viewBox="viewBox" role="img" :aria-label="L('A program, the user/kernel boundary and the CPU', '程序、用户态与内核态的边界，以及 CPU')">
     <defs>
       <marker id="sc-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -111,6 +119,32 @@ const REGS = computed(() => [
     </g>
     <g :class="part('narrow')">
       <text x="68" y="176" class="tag hi c">{{ L('one narrow entry', '一个狭窄的入口') }}</text>
+    </g>
+
+    <!-- before 2018: one page table, the kernel in it, and a load that outruns its check -->
+    <g :class="part('onetable')">
+      <text x="246" y="16" class="tag hi c">{{ L('one page table, before 2018', '一张页表，2018 年以前') }}</text>
+      <rect x="146" y="24" width="200" height="46" class="ublock" />
+      <text x="246" y="44" class="sub c on-text">{{ L('your memory', '你的内存') }}</text>
+      <text x="246" y="59" class="tiny c on-text">{{ L('user mode may read', '用户态可读') }}</text>
+      <rect x="146" y="70" width="200" height="100" class="kblock" />
+      <text x="230" y="94" class="sub c on-text">{{ L('the kernel', '内核') }}</text>
+      <text x="230" y="110" class="tiny c on-text">{{ L('with all physical memory', '连同全部物理内存') }}</text>
+      <text x="230" y="124" class="tiny c on-text">{{ L('supervisor-only', '仅限特权态') }}</text>
+      <rect x="290" y="140" width="48" height="20" rx="2" class="secret" />
+      <text x="314" y="154" class="tiny c on-text">{{ L('a secret', '秘密') }}</text>
+    </g>
+    <g :class="part('leak')">
+      <path d="M122,58 C214,64 300,92 312,138" class="spec" marker-end="url(#sc-arrow)" />
+      <text x="16" y="96" class="tag bad-text">{{ L('a speculative load', '推测执行的加载') }}</text>
+      <text x="16" y="110" class="tag bad-text">{{ L('uses the value', '先用上了读到的值') }}</text>
+      <text x="16" y="124" class="tag bad-text">{{ L('before the fault', '异常才到') }}</text>
+    </g>
+
+    <g :class="part('samecr3')">
+      <rect x="146" y="224" width="200" height="42" rx="6" class="box floor" />
+      <text x="246" y="242" class="lbl c">{{ L('CR3: the same table', 'CR3：还是同一张表') }}</text>
+      <text x="246" y="257" class="sub c">{{ L('a trap only raises the privilege level', '陷入只提升特权级') }}</text>
     </g>
 
     <!-- n · c -->
@@ -183,6 +217,77 @@ const REGS = computed(() => [
       <text x="301" y="257" class="sub c">{{ L('clock parameters', '时钟参数') }}</text>
       <path d="M301,224 V72" class="call" marker-end="url(#sc-arrow)" />
       <text x="307" y="150" class="tag">{{ L('publishes', '发布') }}</text>
+    </g>
+
+    <!-- [vdso] and [vvar] in three processes: one physical copy of each -->
+    <g :class="part('vvarmap')">
+      <text x="352" y="16" class="tag hi end">{{ L('every process maps the same two pages', '每个进程映射的都是同样两页') }}</text>
+      <g v-for="(x, i) in PROCS" :key="i">
+        <rect :x="x" y="24" width="104" height="24" rx="5" class="box strong" />
+        <text :x="x + 52" y="40" class="lbl c">{{ L('process', '进程') }} {{ 'ABC'[i] }}</text>
+        <rect :x="x" y="54" width="50" height="20" rx="2" class="box" />
+        <text :x="x + 25" y="67" class="code c">[vdso]</text>
+        <rect :x="x + 54" y="54" width="50" height="20" rx="2" class="box" />
+        <text :x="x + 79" y="67" class="code c">[vvar]</text>
+        <text :x="x + 25" y="86" class="tag c">r-x</text>
+        <text :x="x + 79" y="86" class="tag c">{{ L('r-- only', '只读') }}</text>
+        <path :d="`M${x + 25},92 L100,226`" class="link" />
+        <path :d="`M${x + 79},92 L260,226`" class="link solid" />
+      </g>
+      <text x="100" y="296" class="tag c">{{ L('physical memory: one copy of each', '物理内存：各只有一份') }}</text>
+      <rect x="40" y="228" width="120" height="36" rx="3" class="box" />
+      <text x="100" y="244" class="lbl c">{{ L('vDSO code', 'vDSO 代码') }}</text>
+      <text x="100" y="257" class="sub c">{{ L('built with the kernel', '随内核一起编译') }}</text>
+      <rect x="200" y="228" width="120" height="36" rx="3" class="box strong" />
+      <text x="260" y="244" class="lbl c">{{ L('time data', '时间数据') }}</text>
+      <text x="260" y="257" class="sub c">seq · mult · shift · …</text>
+      <rect x="200" y="300" width="120" height="38" rx="6" class="box floor" />
+      <text x="260" y="317" class="lbl c">{{ L('timekeeping', '内核计时代码') }}</text>
+      <text x="260" y="331" class="sub c">update_vsyscall()</text>
+      <path d="M260,300 V268" class="call" marker-end="url(#sc-arrow)" />
+      <text x="266" y="288" class="tag hi">{{ L('writes, every tick', '每个滴答写一次') }}</text>
+    </g>
+
+    <!-- the vDSO's mapping next to io_uring's -->
+    <g :class="part('cmp')">
+      <path d="M180,26 V386" class="link" />
+      <text x="90" y="40" class="lbl c">vDSO</text>
+      <text x="270" y="40" class="lbl c">io_uring</text>
+      <g v-for="i in 3" :key="i">
+        <rect :x="14 + (i - 1) * 54" y="50" width="46" height="24" rx="5" class="box strong" />
+        <text :x="37 + (i - 1) * 54" y="66" class="sub c">{{ 'ABC'[i - 1] }}</text>
+        <path :d="`M90,212 L${37 + (i - 1) * 54},78`" class="link solid" marker-end="url(#sc-arrow)" />
+      </g>
+      <text x="96" y="140" class="tag">{{ L('read', '读') }}</text>
+      <rect x="40" y="214" width="100" height="30" rx="3" class="box strong" />
+      <text x="90" y="233" class="sub c">{{ L('time data', '时间数据') }}</text>
+      <rect x="40" y="300" width="100" height="34" rx="6" class="box floor" />
+      <text x="90" y="321" class="lbl c">{{ L('kernel', '内核') }}</text>
+      <path d="M90,300 V248" class="call" marker-end="url(#sc-arrow)" />
+      <text x="96" y="278" class="tag">{{ L('writes', '写') }}</text>
+      <text x="90" y="360" class="tag hi c">{{ L('one writer, every process reads', '一个写者，所有进程都读') }}</text>
+      <text x="90" y="374" class="tag c">{{ L('nothing flows into the kernel', '没有东西流进内核') }}</text>
+
+      <rect x="214" y="50" width="112" height="24" rx="5" class="box strong" />
+      <text x="270" y="66" class="sub c">{{ L('one program', '一个程序') }}</text>
+      <rect x="198" y="160" width="62" height="70" rx="4" class="box" />
+      <text x="229" y="192" class="lbl c">SQ</text>
+      <text x="229" y="206" class="tag c">{{ L('requests', '请求') }}</text>
+      <rect x="282" y="160" width="62" height="70" rx="4" class="box" />
+      <text x="313" y="192" class="lbl c">CQ</text>
+      <text x="313" y="206" class="tag c">{{ L('results', '结果') }}</text>
+      <rect x="214" y="300" width="112" height="34" rx="6" class="box floor" />
+      <text x="270" y="321" class="lbl c">{{ L('kernel', '内核') }}</text>
+      <path d="M229,78 V156" class="call" marker-end="url(#sc-arrow)" />
+      <text x="223" y="120" class="tag end">{{ L('writes', '写') }}</text>
+      <path d="M229,234 V296" class="danger" marker-end="url(#sc-arrow)" />
+      <text x="223" y="270" class="tag bad-text end">{{ L('reads', '读') }}</text>
+      <path d="M313,296 V234" class="call" marker-end="url(#sc-arrow)" />
+      <text x="319" y="270" class="tag">{{ L('writes', '写') }}</text>
+      <path d="M313,156 V78" class="call" marker-end="url(#sc-arrow)" />
+      <text x="319" y="120" class="tag">{{ L('reads', '读') }}</text>
+      <text x="270" y="360" class="tag hi c">{{ L('both sides write', '双方都写') }}</text>
+      <text x="270" y="374" class="tag bad-text c">{{ L('the kernel reads what you wrote', '内核读你写下的东西') }}</text>
     </g>
 
     <!-- batching -->
@@ -300,6 +405,15 @@ const REGS = computed(() => [
 }
 .outrisk {
   stroke: var(--warn);
+}
+.secret {
+  fill: var(--p3);
+}
+.spec {
+  fill: none;
+  stroke: var(--p3);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
 }
 .lit .ublock,
 .lit .kblock {

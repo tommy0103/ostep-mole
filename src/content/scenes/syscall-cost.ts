@@ -5,12 +5,15 @@ const scene: SceneDef = {
   height: 436,
   bands: {
     overview: [6, 430],
+    meltdown: [6, 272],
     account: [6, 270],
     trap: [6, 336],
     indirect: [6, 430],
     kpti: [186, 430],
     pcid: [340, 430],
+    vvar: [6, 344],
     vdso: [6, 270],
+    compare: [24, 390],
     batch: [6, 270],
     rings: [6, 336],
     sqpoll: [78, 336],
@@ -35,6 +38,11 @@ const scene: SceneDef = {
     sq: [112, 164],
     cq: [208, 262],
     kside: [284, 332],
+    onetable: [6, 172],
+    leak: [46, 160],
+    samecr3: [214, 270],
+    vvarmap: [8, 340],
+    cmp: [26, 386],
   },
   states: {
     overview: {
@@ -42,6 +50,46 @@ const scene: SceneDef = {
       caption: {
         en: 'Your program runs at full speed until it needs something only the kernel may do, then traps across the boundary and comes back. Since the 2018 Meltdown fix, each trip has cost more, and part of the bill is paid in the CPU’s own state. On the right are two of the ways around it: the vDSO and io_uring’s shared rings.',
         zh: '你的程序全速运行，直到需要某件只有内核才能做的事，于是陷入、跨过边界，再回来。2018 年 Meltdown 的修补方案之后，每一趟都更贵了，而账单有一部分是用 CPU 自身的状态来付的。右边是绕开它的两条路：vDSO 和 io_uring 的共享环。',
+      },
+    },
+    meltdown: {
+      title: { en: 'Meltdown: the kernel was mapped', zh: 'Meltdown：内核就映射在那里' },
+      caption: {
+        en: 'Before 2018 the kernel sat in every process’s page table, marked supervisor-only, so a trap only had to raise the privilege level. On many Intel processors a load from a kernel address passed its value on before the fault arrived, and the trace it left in the cache survived the fault.',
+        zh: '2018 年以前，内核就在每个进程的页表里，标着“仅限特权态”，所以陷入时只需提升特权级。在许多 Intel 处理器上，读内核地址的加载指令会在异常到来之前就把值传下去，而它在缓存里留下的痕迹，异常也抹不掉。',
+      },
+      demo: {
+        label: { en: 'How one byte leaks', zh: '一个字节怎么漏出来' },
+        steps: [
+          {
+            en: 'One page table per process, with the kernel in it. The kernel’s entries are marked supervisor-only, so in user mode a load from a kernel address faults. Keeping the kernel mapped means a trap need not switch page tables.',
+            zh: '每个进程一张页表，内核也在里面。内核的表项标着“仅限特权态”，所以在用户态下读内核地址会触发异常。内核一直映射着，陷入时就不必切换页表。',
+          },
+          {
+            en: 'Preparation. The attacker does not know the byte, so every possible value gets a slot: 256 of them, 4096 bytes apart so that each has a cache line to itself. Then every slot is flushed out of the cache.',
+            zh: '准备。攻击者不知道那个字节是几，只好给每个可能的值都留一格：共 256 格，彼此相隔 4096 字节，各占一个缓存行。然后把它们全部赶出缓存。',
+          },
+          {
+            en: 'mov al, byte [rcx] loads a byte from a kernel address. The load is not allowed, but the fault is raised only when the instruction retires. Until then, the value 11 is already in al and available to the next instructions.',
+            zh: 'mov al, byte [rcx] 从内核地址读一个字节。这次读取不被允许，但异常要等这条指令退役时才触发。在那之前，值 11 已经在 al 里，后面的指令可以接着用。',
+          },
+          {
+            en: 'Still before the fault: shl multiplies 11 by 4096, and the last mov reads probe[11 × 4096]. Slot 11 is brought into the cache. The value has become a place in the cache.',
+            zh: '异常仍未到来：shl 把 11 乘以 4096，最后一条 mov 读 probe[11 × 4096]。第 11 格被搬进了缓存，值就这样变成了缓存里的一个位置。',
+          },
+          {
+            en: 'The load retires and the fault is raised. The CPU discards the registers, and the program receives SIGSEGV, which it catches with a signal handler. Nothing undoes the cache: slot 11 is still there.',
+            zh: '加载指令退役，异常触发。CPU 丢弃了寄存器的内容，程序收到 SIGSEGV，用信号处理函数接住它。没有什么会去撤销缓存：第 11 格还在。',
+          },
+          {
+            en: 'Measure. The program reads every slot and times each read. Slot 11 answers in a few nanoseconds, the others in about a hundred. The byte is 11. Then on to the next address; the paper read 3.2 to 503 KB a second.',
+            zh: '测量。程序把每一格读一遍并计时：第 11 格只要几纳秒，其他的要一百纳秒左右。这个字节就是 11。接着读下一个地址；论文的速度是每秒 3.2 KB 到 503 KB。',
+          },
+          {
+            en: 'With KPTI, the page table loaded in user mode maps only the kernel’s entry code. The kernel address has no translation, so the load has no value to pass on, no slot is touched, and the timing shows nothing.',
+            zh: '有了 KPTI，用户态装着的页表只映射内核的入口代码。内核地址没有转换，加载指令无值可传，没有哪一格被碰过，计时也就什么都看不出来。',
+          },
+        ],
       },
     },
     account: {
@@ -97,8 +145,8 @@ const scene: SceneDef = {
     kpti: {
       title: { en: '2018: two sets of page tables', zh: '2018：两套页表' },
       caption: {
-        en: 'Meltdown let user code read kernel memory as long as the kernel was mapped in the process’s page tables. KPTI gives each process two sets: a full one for the kernel, and a user one mapping only the entry code. Every entry and exit writes CR3.',
-        zh: '只要内核被映射在进程的页表里，Meltdown 就能让用户代码读出内核内存。KPTI 给每个进程两套页表：一套完整的给内核用，另一套给用户态用，只映射入口代码。每次进入和退出都要写 CR3。',
+        en: 'KPTI gives each process two page tables: a full one for the kernel, and a user one that maps only what is needed to get in and out. While user code runs the kernel is not mapped, so Meltdown has nothing to read. Every entry and exit writes CR3.',
+        zh: 'KPTI 给每个进程两张页表：一张完整的给内核用，另一张给用户态用，只映射进出内核所必需的东西。用户代码运行时内核没有被映射，Meltdown 也就无从读起。每次进入和退出都要写 CR3。',
       },
     },
     pcid: {
@@ -108,11 +156,58 @@ const scene: SceneDef = {
         zh: '写 CR3 通常会清空 TLB，所以如果没有额外帮助，每次系统调用都会扔掉所有缓存好的地址转换。PCID 给 TLB 项打上标签，让用户态和内核态的转换得以共存。有它，KPTI 是每次跨越都要交的一笔税；没有它，每次跨越都会清空你的 TLB。',
       },
     },
+    vvar: {
+      title: { en: 'Two mappings, one copy', zh: '两段映射，一份实体' },
+      caption: {
+        en: 'At execve() the kernel maps [vdso], kernel-built code, and [vvar], the kernel’s time data, into every process. There is one set of physical pages for each: the vvar page every process reads is the page the kernel’s timekeeping writes, through its own mapping.',
+        zh: 'execve() 时，内核把 [vdso]（内核编译出的代码）和 [vvar]（内核的时间数据）映射进每个进程。两者各只有一份物理页：每个进程读到的 vvar 页，就是内核计时代码通过自己的映射在写的那一页。',
+      },
+    },
     vdso: {
       title: { en: 'Strategy one: no trap at all', zh: '第一条路：根本不陷入' },
       caption: {
         en: 'For calls that only read what the kernel already knows, the kernel maps a small library, the vDSO, and a read-only data page into every process and keeps the clock parameters there. The program reads them in user mode. The process may read those values but not write them.',
         zh: '有些调用只是读内核早已知道的值。内核把一个小库 vDSO 和一个只读数据页映射进每个进程，并把时钟参数放在那里，程序在用户态读取即可。进程可以读这些值，但不能写。',
+      },
+      demo: {
+        label: { en: 'One clock read, and a tick in the middle', zh: '读一次时钟，中途撞上一个滴答' },
+        steps: [
+          {
+            en: 'Your program calls clock_gettime(). The C library sends it into the [vdso] code: an ordinary function call, in user mode. The values it needs are in [vvar], the kernel’s page, which your process can only read.',
+            zh: '你的程序调用 clock_gettime()，C 库把它转进 [vdso] 的代码：用户态里的一次普通函数调用。它要用的值在 [vvar] 里，那是内核的页，你的进程只能读。',
+          },
+          {
+            en: 'The reader takes seq first: 42. An even number means no update is in progress.',
+            zh: '读的一方先读 seq：42。偶数，说明没有更新在进行。',
+          },
+          {
+            en: 'It reads the CPU’s counter and starts on the values. It has taken cycle_last and mult, both from the last tick, t1.',
+            zh: '它读 CPU 的计数器，开始读那些值：cycle_last 和 mult 已经读到了，都来自上一个滴答，t1。',
+          },
+          {
+            en: 'Meanwhile, a timer tick on CPU 1. The kernel makes seq odd, 43, and writes the new values, t2. It neither knows nor cares that a reader is halfway through.',
+            zh: '与此同时，CPU 1 上来了一个时钟滴答。内核把 seq 变成奇数 43，写入新值 t2。它不知道、也不在乎有人正读到一半。',
+          },
+          {
+            en: 'The kernel finishes and makes seq even again, 44. The reader carries on and takes shift and base, which are now t2. Its arithmetic mixes two ticks, and the answer could be off by a whole tick.',
+            zh: '内核写完，把 seq 变回偶数 44。读的一方接着读 shift 和 base，读到的已经是 t2。它的算式里混进了两个滴答的值，结果可能差出整整一个滴答。',
+          },
+          {
+            en: 'The check catches it. seq is 44, not the 42 the reader started with, so it throws its result away and goes round the loop again.',
+            zh: '检查把它抓了出来：seq 是 44，不是开始时的 42。于是它丢掉结果，再绕一圈。',
+          },
+          {
+            en: 'Second pass: seq is 44 before and 44 after, and every value is from t2. The result is consistent and is returned. No lock, no trap, and the reader wrote nothing.',
+            zh: '第二遍：前后读到的 seq 都是 44，所有值都来自 t2。结果是一致的，返回。没有锁，没有陷入，读的一方什么也没写。',
+          },
+        ],
+      },
+    },
+    compare: {
+      title: { en: 'Two shared mappings, two directions', zh: '两种共享映射，两个方向' },
+      caption: {
+        en: 'The vDSO’s page has one writer, the kernel, and every process reads it; nothing flows back. io_uring’s rings belong to one program, both sides write, and the kernel reads requests from memory the program can change at any moment.',
+        zh: 'vDSO 的那一页只有内核一个写者，所有进程都来读，没有东西流回内核。io_uring 的环属于一个程序，双方都写，内核还要从程序随时能改的内存里读请求。',
       },
     },
     batch: {
@@ -172,12 +267,15 @@ const scene: SceneDef = {
   terms: {
     kpti: ['cr3'],
     'page-table': ['cr3'],
+    'direct-map': ['onetable'],
+    spectre: ['onetable', 'leak'],
     cr3: ['cr3'],
     pcid: ['tlb'],
     tlb: ['tlb'],
     'cpu-cache': ['l1'],
     pipeline: ['pipeline'],
     vdso: ['vdso'],
+    auxv: ['vvarmap'],
     'ring-buffer': ['rings'],
     'io-uring': ['rings', 'kside'],
     'shared-memory': ['rings'],

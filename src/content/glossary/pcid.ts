@@ -11,6 +11,13 @@ const terms: Record<string, Term> = {
     chapter: 'vm-tlbs',
     note: 'pcid',
   },
+  rcore: {
+    title: { en: 'rCore', zh: 'rCore' },
+    body: {
+      en: 'A teaching operating system written in Rust for [[riscv|RISC-V]], used in Tsinghua University’s operating-systems course. Its tutorial book builds the kernel up chapter by chapter, and in places follows [[xv6|xv6]].',
+      zh: '一个用 Rust 编写、运行在 [[riscv|RISC-V]] 上的教学操作系统，用于清华大学的操作系统课程。配套的教程一章一章地把内核搭起来，有些地方参考了 [[xv6|xv6]]。',
+    },
+  },
   cr3: {
     title: { en: 'CR3', zh: 'CR3' },
     body: {

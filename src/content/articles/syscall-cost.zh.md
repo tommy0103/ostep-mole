@@ -7,6 +7,70 @@ title: 当陷入本身变得太贵：系统调用的代价，以及绕开它的�
 
 2018 年 1 月，[[spectre|Meltdown]] 攻击公之于众。几周之内，Linux 4.15 带着修补方案发布：**[[kpti|内核页表隔离]]**（kernel page-table isolation，KPTI）。不久，当时在 Netflix 的 Brendan Gregg 公布了它的代价。他写道，这些补丁带来了“我见过的最大的内核性能回退”。Netflix 的典型服务付出的代价远低于百分之一；而在他构造的最坏情况下——系统调用频率高、[[working-set|工作集]]又大——程序慢了 800% 以上。
 
+## Meltdown 是什么，KPTI 又改了什么
+
+::scene meltdown
+
+每个进程都有一张[[page-table|页表]]：CPU 每访问一次内存，都要靠它把程序用的地址换算成物理内存里的位置。第 18 到 20 章会一步步把它搭起来。直到 2018 年，Linux、Windows 和 macOS 都把内核也放进了每个进程的页表。在 64 位 Linux 上，地址空间的下半部分是程序，上半部分是内核，其中还有一段[[direct-map|直接映射区]]，把全部物理内存都映射了进来，好让内核能够访问任意一页。内核的这些表项都标成了“仅限特权态”：在用户态下读这样的地址，就会触发异常。
+
+这样安排是为了省事。陷入时只需提升特权级：内核的代码和数据本来就映射着，不必切换页表；内核还能直接访问程序的内存，比如把 `read()` 读到的字节拷进程序的缓冲区。整套保护就压在那一个权限位上。
+
+Meltdown 表明，这一位检查得太晚了。现代 CPU 并不是做完一条指令再开始下一条。它会往前跑：后面的指令只要输入就绪就先执行，而一条指令引发的异常，要等它按程序顺序*退役*（retire）时才处理。在许多 Intel 处理器上，一条读内核地址的加载指令，会在异常触发之前就把读到的值交给后面的指令。异常到来时，CPU 会丢弃这些指令的结果，却不会撤销它们对[[cpu-cache|缓存]]造成的影响。
+
+Moritz Lipp 等人的论文（USENIX Security 2018）里，攻击的核心只有寥寥几条指令：
+
+```text
+; rcx = 内核地址, rbx = probe 数组
+xor rax, rax
+retry:
+mov al, byte [rcx]
+shl rax, 0xc
+jz retry
+mov rbx, qword [rbx + rax]
+```
+
+- `mov al, byte [rcx]` 从一个内核地址读一个字节。它注定会触发异常，只是还没到时候。
+- `shl rax, 0xc` 把这个字节乘以 4096。如果读出来是 0，`jz retry` 就重试一次：读到 0 往往说明异常抢先了一步。
+- `mov rbx, qword [rbx + rax]` 读 *probe 数组*里的一格。这个数组有 256 格，彼此相隔 4096 字节，攻击者事先把它整个赶出了缓存。字节的值是几，读的就是第几格。
+
+然后异常到了。程序用[[signal|信号]]处理函数接住它，或者用 Intel 的[[tsx|事务内存]]把它压下去，再把 256 格挨个读一遍、逐一计时。有一格几纳秒就从缓存里返回，其余的要到内存里去取，大约一百纳秒。这一格的编号，就是那个字节。论文转储内核内存的速度因机器而异，在每秒 3.2 KB 到 503 KB 之间。内核映射着全部物理内存，所以能读到的还包括其他进程的内存，以及共享同一个内核的其他容器的内存。图里逐步演示了读出一个字节的过程。
+
+三个团队各自独立发现了它：Google Project Zero 的 Jann Horn，Cyberus Technology 的 Werner Haas 和 Thomas Prescher，以及格拉茨工业大学的一个小组。论文点名的是“2010 年以来的现代 Intel 微架构”；Arm 的核心里只有 Cortex-A75 受影响，作者也没能在 AMD 上复现。页表权限本身并没有设错，内核之所以泄漏，是因为它根本就被映射着。
+
+::scene kpti
+
+所以修补办法就是不再映射它。设计是现成的：2017 年，格拉茨的 Daniel Gruss 等人发表了 KAISER，把内核排除在用户页表之外，原本是为了挡住另一种侧信道攻击，目标是 [[kaslr|KASLR]]。改写后的版本，就是随 Linux 4.15 发布的 KPTI。有了它，每个进程有两张页表，而不是一张：
+
+- 内核副本和以前一样映射一切：程序和整个内核。
+- 用户副本映射程序，外加 CPU 进出内核所必需的那一点东西：入口和出口代码、[[idt|中断描述符表]]，以及一小块存放入口栈的每 CPU 区域。
+
+程序运行时，装着的是用户副本。内核地址在里面根本没有转换，推测执行的加载也就无值可传。每一次进入内核，无论是系统调用、中断还是异常，都要先把 [[cr3|`CR3`]]（存放页表地址的寄存器）指向内核副本；每一次返回，再把它指回来。Windows（KVA Shadow）和 macOS（Double Map）也采用了同样的思路。较新的 Intel 处理器会报告自己不受影响，在这些处理器上，和在 AMD 的处理器上一样，Linux 不开启 KPTI。
+
+:::fold 内核里的切换长什么样
+后文的入口代码调用了 `SWITCH_TO_KERNEL_CR3`，它是 `arch/x86/entry/calling.h` 里的一个宏。下面是它和它用到的那个宏，取自近期的主线内核：
+
+```text
+.macro ADJUST_KERNEL_CR3 reg:req
+	ALTERNATIVE "", "SET_NOFLUSH_BIT \reg", X86_FEATURE_PCID
+	/* Clear PCID and "MITIGATION_PAGE_TABLE_ISOLATION bit", point CR3 at kernel pagetables: */
+	andq    $(~PTI_USER_PGTABLE_AND_PCID_MASK), \reg
+.endm
+
+.macro SWITCH_TO_KERNEL_CR3 scratch_reg:req
+	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_PTI
+	mov	%cr3, \scratch_reg
+	ADJUST_KERNEL_CR3 \scratch_reg
+	mov	\scratch_reg, %cr3
+.Lend_\@:
+.endm
+```
+
+- 两个副本在内存里紧挨着。开启 KPTI 后，进程的顶层页表占两个连续的 4 KB 页，而不是一个，内核副本在前，所以用户副本的地址等于内核副本的地址加 4096。落到 `CR3` 里，就是第 12 位这一位。切换副本就是清掉或置上这一位：在读出 `CR3` 和写回之间，一条 `andq` 就够了。
+- 同一个掩码还清掉了 PCID 的一位。PCID 是存放在 `CR3` 低 12 位里的标签，后面讲 2018 年的那一节会解释它。同一个进程的内核半边和用户半边，用的是不同的标签。
+- `SET_NOFLUSH_BIT` 置上第 63 位，告诉 CPU 保留这个标签下已经缓存的 TLB 项，不要清空。
+- `ALTERNATIVE` 会在开机时被打补丁。按源码原样，这个宏一开头就跳过它自己；在需要 KPTI 的 CPU 上，内核把这条跳转去掉。
+:::
+
 程序本身一行没改，变的是每一趟进出内核的价钱。这篇文章讲的就是这个价钱：在现代 CPU 上，一次陷入究竟花多少；为什么它取决于书里那张时间线没画出来的东西；以及系统工程师们减少往返次数的三条路。
 
 ## 用书里的话来问
@@ -32,7 +96,7 @@ title: 当陷入本身变得太贵：系统调用的代价，以及绕开它的�
 - 切换到内核特权级，并清除 `IA32_FMASK` 中指定的标志位；Linux 借此让内核一进来就处于关中断状态。
 - **不**切换栈指针。此刻内核运行在用户的栈上，而它绝不能信任这个栈。
 
-剩下的全靠软件。内核入口代码用 `swapgs` 换上自己的[[per-cpu|每 CPU 数据]]，暂存用户栈指针，若开启了 KPTI 就切换[[page-table|页表]]，载入内核栈，再把用户的每一个寄存器压进 `struct pt_regs`——也就是书中图 6.2 里“把寄存器保存到内核栈”那一格。返回时，这一切再倒着做一遍。
+剩下的全靠软件。内核入口代码用 `swapgs` 换上自己的[[per-cpu|每 CPU 数据]]，暂存用户栈指针，若开启了 KPTI 就切换页表，载入内核栈，再把用户的每一个寄存器压进 `struct pt_regs`——也就是书中图 6.2 里“把寄存器保存到内核栈”那一格。返回时，这一切再倒着做一遍。
 
 下面的实验按书里的粒度演示了这个过程。选“系统调用”场景，单步走一遍，数一数有几步既不是你的程序、也不是系统调用处理程序在替你干活——它们全是在保存、切换、恢复。在真实硬件上，这里的每一格都比书写成时更胖了。
 
@@ -78,7 +142,7 @@ SYM_CODE_START(entry_SYSCALL_64)
 
 ## 看不见的那部分代价
 
-54 ns 是*直接*开销：花在边界本身上的周期。2010 年，Livio Soares 和 Michael Stumm 证明这远不是账单的全部。他们的 FlexSC 论文（OSDI 2010）在 Intel Core i7 上测量了一个 [[spec-cpu|SPEC]] 基准程序在一次系统调用前后的用户态[[instructions-per-cycle|每周期指令数]]（IPC）。系统调用返回之后，程序会有一段时间跑得更慢，忙着把被内核挤掉的东西重新装回来：[[pipeline|流水线]]、[[cpu-cache|L1 缓存]]、[[tlb|TLB]]。他们的结论是：同步系统调用之所以严重拖累性能，“主要是因为流水线被冲刷，以及关键处理器结构受到污染”。
+54 ns 是*直接*开销：花在边界本身上的周期。2010 年，Livio Soares 和 Michael Stumm 证明这远不是账单的全部。他们的 FlexSC 论文（OSDI 2010）在 Intel Core i7 上测量了一个 [[spec-cpu|SPEC]] 基准程序在一次系统调用前后的用户态[[instructions-per-cycle|每周期指令数]]（IPC）。系统调用返回之后，程序会有一段时间跑得更慢，忙着把被内核挤掉的东西重新装回来：[[pipeline|流水线]]、L1 缓存、[[tlb|TLB]]。他们的结论是：同步系统调用之所以严重拖累性能，“主要是因为流水线被冲刷，以及关键处理器结构受到污染”。
 
 第 7 章讲上下文切换时说的是同一件事：代价还包括缓存和 TLB 里那些温热的状态，下一段代码得把它们重建起来。陷入就是一次小小的上下文切换——进入内核再回来——交的是同一种间接税。
 
@@ -88,7 +152,7 @@ FlexSC 开出的药方预示了 [[io-uring|io_uring]]：[[thread|线程]]把请�
 
 ## 2018：价钱上涨
 
-只要内核被映射在进程的页表里，Meltdown 就能让用户代码借助推测执行读出内核内存。而 Linux 和大多数内核一样，把自己映射进了每一个进程（标记为仅限特权级访问），好让陷入时不必切换地址空间。KPTI 拿掉了这条捷径：每个进程现在有两套页表，一套完整的给内核用，另一套给用户态用，只映射进出内核所必需的入口代码。每一次系统调用、中断和异常，进入时要切换一次 [[cr3|`CR3`]]（页表基址寄存器），退出时再切换一次。
+带着开头讲的那些，再看一遍入口代码。`SWITCH_TO_KERNEL_CR3` 就是 KPTI 的页表切换，它的镜像 `SWITCH_TO_USER_CR3` 在每次返回时运行。2018 年以前，陷入只改变特权级，地址空间原封不动；如今每一次系统调用、中断和异常，进来时写一次 `CR3`，出去时再写一次。
 
 ::scene pcid
 
@@ -113,9 +177,103 @@ Gregg 2018 年的分析在 AWS 实例上进行，内核为 Linux 4.14，用一�
 
 有些系统调用只是读一个内核早已知道的值，当前时间就是典型例子：给每个请求打时间戳的程序会不停地调用 `clock_gettime()`，而这些调用没有一次需要特权硬件，需要的只是内核随时更新的几个数。
 
-**[[vdso|vDSO]]**（virtual dynamic shared object，虚拟动态共享对象）就是内核的回答。每次 [[fork-exec|`execve()`]] 时，内核把一个小小的 [[elf|ELF]] 库映射进新进程，并在[[auxv|辅助向量]]里告知它的（随机化的）地址。[[libc|C 库]]把 `clock_gettime()` 这类调用转给它，而不再陷入；在 x86-64 上，它导出 `clock_gettime`、`gettimeofday`、`time` 和 `getcpu`。代码旁边是一个只读数据页，内核把当前时钟参数发布在那里。vDSO 函数读这个页，通常再读一下 CPU 的[[tsc|时间戳计数器]]，然后在用户态把账算完。用[[man-page|手册页]]的话说，这个调用“从一次系统调用变成了一次普通函数调用加上几次内存访问”。
+**[[vdso|vDSO]]**（virtual dynamic shared object，虚拟动态共享对象）就是内核的回答：一个由内核编写、却在用户态运行的小库，就放在它要用的数据旁边。[[libc|C 库]]把 `clock_gettime()` 这类调用转给它，而不再陷入。在 x86-64 上，它导出 `clock_gettime`、`gettimeofday`、`time` 和 `getcpu`。用[[man-page|手册页]]的话说，这个调用“从一次系统调用变成了一次普通函数调用加上几次内存访问”。
 
-这依然是受限直接执行，只是边界挪了位置：进程可以*读*内核发布的值，但不能写。如果没有快速路径可走——比如时钟源没法在用户态读取——vDSO 函数就悄悄地发起真正的系统调用。这个思路还在扩展：Linux 6.11（2024 年）加入了 Jason Donenfeld 编写的 vDSO 版 `getrandom()`，他报告生成 32 位随机数时快了“大约 15 倍”。
+::scene vvar
+
+### 每个进程里的两段映射
+
+任何一个进程的内存映射里都能看到它。在一台运行 Linux 6.8 的 arm64 机器上，`/proc/self/maps` 里有这样两行：
+
+```text
+e765c389f000-e765c38a1000 r--p 00000000 00:00 0    [vvar]
+e765c38a1000-e765c38a2000 r-xp 00000000 00:00 0    [vdso]
+```
+
+两段都是内核在每次 [[fork-exec|`execve()`]] 时装好的，那时程序的第一条指令还没执行。
+
+- `[vdso]` 是代码，可读、可执行。它是一个真正的 [[elf|ELF]] 共享库，在编译内核时生成，嵌在内核映像里。`ldd` 会把它列为 `linux-vdso.so.1`，但磁盘上并没有这个文件。在每个进程里，它对应的都是同一批物理页。
+- `[vvar]` 是数据，只读。这几页由内核在开机时分配一次，内核的计时代码把当前的时钟参数写在这里。内核并不把它们拷进进程：进程第一次读 `[vvar]` 时触发[[page-fault|页错误]]，由处理函数 `vvar_fault()` 把内核自己的那一页映射进来。于是机器上的每个进程读到的，都是内核正通过自己的映射在写的同一个物理页。
+- 两段都放在随机地址上。内核通过[[auxv|辅助向量]]里的 `AT_SYSINFO_EHDR` 把 vDSO 的地址告诉程序。C 库在启动时读取那里的 ELF 符号表；在 x86-64 上，它查找的是版本为 `LINUX_2.6` 的 `__vdso_clock_gettime`。
+
+在 vDSO 之前，x86-64 Linux 提供的是 *vsyscall 页*：做同样的事，但放在一个固定地址 `0xffffffffff600000` 上，每台机器、每个进程都一样。一个永远不动的地址，对需要已知指令来跳转的攻击者很有用，内核为此花了好几年把这一页掏空。
+
+:::fold vsyscall 页，以及它是怎样被掏空的
+这一页位于地址空间里内核的那一半，却对用户态开放。它有三个入口，按固定偏移排开：`gettimeofday` 在 `+0x000`，`time` 在 `+0x400`，`getcpu` 在 `+0x800`。老的 C 库和静态链接的程序直接调用这几个绝对地址，什么也不用查。时间数据也放在同一页上，而这一页是可执行的。
+
+| | vsyscall 页 | vDSO |
+|---|---|---|
+| 地址 | 固定，`0xffffffffff600000` | 随机，每次 `execve()` 重新选 |
+| 程序怎么找到它 | 调用写死的地址 | 辅助向量，再查 ELF 符号表 |
+| 函数 | 三个，固定偏移 | 按名字导出，可以增加 |
+| 代码和数据 | 同一个可执行页 | `[vdso]`（r-x）和 `[vvar]`（只读） |
+| 架构 | 只有 x86-64 | 几乎所有架构 |
+| 今天的速度 | 慢：每次调用都陷入内核、再被模拟 | 快：不陷入 |
+
+栈溢出的攻击者往往能让某个函数“返回”到自己选的地址。[[aslr|ASLR]] 让人不知道 C 库在哪里，但 vsyscall 页永远在同一个地方，里面还有发起系统调用的指令。LWN 在 2011 年指出，连这一页上存的时间值，当它恰好是某几个字节时，被跳进去执行也像一条系统调用指令：放在可执行页里的数据，也能被当成代码用。
+
+这一页不能直接删掉，因为老程序还在调用它。于是它被分几步掏空：
+
+- 2011 年，Andy Lutomirski 移除了里面所有有用的指令。如今调用这一页会陷入内核，内核判断调用的是三个槽位中的哪一个，替它做真正的系统调用，再返回。LWN 的说法是：“用一次内核系统调用，来模拟一个本来就是为了避免内核系统调用而存在的虚拟系统调用。”老程序照样能跑，只是慢一点。
+- 今天的默认值 `vsyscall=xonly` 更进一步。用内核源码的话说，这一页“根本没有 [[pte|PTE]] 支撑”。执行它会触发异常、再被模拟；读它则直接失败。
+- `vsyscall=none` 把这一页彻底去掉。内核的配置说明写道，只要 glibc 是 2.14 或更新的版本、又没有静态链接的程序，这样做没有任何性能代价。
+:::
+
+::scene vdso
+
+### 在内核改写时读时钟
+
+时间数据不是静止的。内核的计时每推进一次就改写它，通常是每个时钟滴答一次，而此刻可能正有另一个 CPU 读到一半。加锁不行：读的一方是用户代码，内核的时钟绝不能等某个进程。vDSO 用的是**序列计数器**（sequence counter）：
+
+1. 写的一方先把 `seq` 加一，让它变成奇数，写入新值，再把 `seq` 加一，让它变回偶数。
+2. 读的一方先读 `seq`，若是奇数就等。接着读那些值和 CPU 的[[tsc|时间戳计数器]]，把账算完，然后再读一次 `seq`。如果变了，读到的值可能一半旧一半新，于是丢掉结果，从头再来。
+
+读的一方从不写，所以这一页可以是只读的；写的一方从不等待，所以没有哪个进程能拖住内核。撞上一次更新只需重试一遍，而更新本身既短又隔得远。算术本身是用定点数把计数器的滴答换算成纳秒：纳秒 = ((计数器 − 上次更新时的计数器) × `mult` + 基准) >> `shift`，其中 `mult` 和 `shift` 由内核按计数器的频率选定。
+
+:::fold 读的一方：内核通用 vDSO 代码
+下面是近期主线内核 `lib/vdso/gettimeofday.c` 和 `include/vdso/helpers.h` 里 `clock_gettime()` 的高精度路径，有删节和简化：时间命名空间和计数器溢出的处理都去掉了。它被编译进 vDSO，在用户态运行：
+
+```c
+static u32 vdso_read_begin(const struct vdso_clock *vc)
+{
+	u32 seq;
+
+	while (unlikely((seq = READ_ONCE(vc->seq)) & 1))
+		cpu_relax();                    /* 正在更新，等一等 */
+	smp_rmb();
+	return seq;
+}
+
+static u64 vdso_calc_ns(const struct vdso_clock *vc, u64 cycles, u64 base)
+{
+	u64 delta = (cycles - vc->cycle_last) & vc->mask;
+
+	return ((delta * vc->mult) + base) >> vc->shift;
+}
+
+bool do_hres(const struct vdso_time_data *vd, const struct vdso_clock *vc,
+	     clockid_t clk, struct __kernel_timespec *ts)
+{
+	u64 sec, ns;
+	u32 seq;
+
+	do {
+		seq = vdso_read_begin(vc);
+		if (!vdso_get_timestamp(vd, vc, clk, &sec, &ns))
+			return false;           /* 没有可用的计数器：改走真正的系统调用 */
+	} while (vdso_read_retry(vc, seq));
+
+	vdso_set_timespec(ts, sec, ns);
+	return true;
+}
+```
+
+- `vdso_get_timestamp()` 读硬件计数器（在 x86 上就是时间戳计数器），再调用 `vdso_calc_ns()`。如果内核把时钟源标记为用户态不可读，它就返回 false，`clock_gettime()` 随之退回系统调用。
+- `smp_rmb()` 是一道读[[memory-barrier|内存屏障]]，防止 CPU 在读 `seq` 之前就读那些值，或者在读完那些值之前就第二次读 `seq`。
+- 写的一方是 `kernel/time/vsyscall.c` 里的 `update_vsyscall()`。它用 `vdso_write_begin()` 和 `vdso_write_end()` 把写入包起来，两者各把 `seq` 加一，写屏障都放在靠里的一侧。
+:::
+
+这依然是受限直接执行，只是边界挪了位置：进程可以*读*内核发布的值，但不能写。如果没有快速路径可走——比如时钟源没法在用户态读取——vDSO 函数就悄悄地发起真正的系统调用。手册页还提到，由于快速路径从不陷入，`strace`（列出程序所做系统调用的工具）看不到这些调用，[[seccomp|seccomp]] 过滤器也看不到。这个思路还在扩展：Linux 6.11（2024 年）加入了 Jason Donenfeld 编写的 vDSO 版 `getrandom()`，他报告生成 32 位随机数时快了“大约 15 倍”。
 
 ::scene batch
 
@@ -137,6 +295,21 @@ UNIX 很早就这么做了。`readv()` 和 `writev()` 一次调用搬动多个�
 - **完成队列**（completion queue，CQ）。内核写入结果（CQE）并推进队尾；应用程序从队头读取。
 
 每一方只写每个环的自己那一端，所以双方可以并行工作而不必加锁，靠[[memory-barrier|内存屏障]]来发布更新。初始化要花几次系统调用（`io_uring_setup()` 和几次 [[mmap|`mmap()`]]）。此后，一次 `io_uring_enter()` 就能把目前排好的请求一并提交，*同时*等待完成事件——都在同一次陷入里。
+
+::scene compare
+
+和 vDSO 一样，io_uring 也是把内核同样在用的内存放进进程的地址空间。相似之处到此为止：
+
+| | vDSO | io_uring |
+|---|---|---|
+| 谁来映射 | 内核，每次 `execve()` 时主动映射 | 程序自己，对环的文件描述符调用 `mmap()`，或者把自己的内存交给内核（`IORING_SETUP_NO_MMAP`） |
+| 谁在共享 | 机器上的每一个进程 | 一个环，由一个程序建立 |
+| 谁来写 | 只有内核；程序的映射是只读的 | 双方都写：程序写请求和 SQ 队尾，内核写结果和 CQ 队尾 |
+| 有没有代码 | 有，内核生成、在用户态运行的代码 | 没有；活由内核来干 |
+| 怎样保持一致 | 序列计数器，读的一方重试 | 每个下标只有一个写者，屏障保证条目先于下标可见 |
+| 内核是否读程序写的内存 | 从不 | 每个请求都读 |
+
+最后一行最要紧。vDSO 的数据只朝一个方向流，从内核流出，所以程序最坏也只是读错自己的时钟。io_uring 的内核却要从程序随时可以改动的内存里读请求，甚至在内核读的同时程序都可能在改。所以它对请求的每个字段只读一次（源码里是 `READ_ONCE(sqe->opcode)`），之后只用自己的副本。下一节会讲到，这种暴露付出过什么代价。
 
 ::scene sqpoll
 
@@ -236,7 +409,7 @@ int main(void)
 - **vDSO 只适用于以读为主的数据：** 时钟、CPU 编号，如今还有随机字节。它帮不了要修改内核状态的调用。
 - **批处理会增加延迟。** 攒够 64 个包再用一次 `sendmmsg()` 发出去，第一个包就得等着：用响应时间换吞吐量，和第 7 章里选更长的时间片是同一笔交易。
 - **轮询要烧掉一个核。** 在空闲的环上自旋的 SQPOLL 线程占着一颗 CPU；空闲超时就是折中。
-- **共享内存意味着更大的攻击面。** 陷入只有一个狭窄、受检查的入口；io_uring 却是一个庞大的异步子系统，从用户随时可以改动的内存里读取请求。2023 年 6 月，Google 披露：过去一年提交到其 kCTF 漏洞奖励计划的内核[[exploit|漏洞利用]]中，60% 利用了 io_uring。Google 在 ChromeOS 和生产服务器上禁用了 io_uring，并用 [[seccomp|seccomp-bpf]] 过滤器让 Android 应用无法触及它。
+- **共享内存意味着更大的攻击面。** 陷入只有一个狭窄、受检查的入口；io_uring 却是一个庞大的异步子系统，从用户随时可以改动的内存里读取请求。2023 年 6 月，Google 披露：过去一年提交到其 kCTF 漏洞奖励计划的内核[[exploit|漏洞利用]]中，60% 利用了 io_uring。Google 在 ChromeOS 和生产服务器上禁用了 io_uring，并用 seccomp-bpf 过滤器让 Android 应用无法触及它。
 
 最后一点正是书中安全论证的反面。第 6 章提醒内核要对用户输入保持怀疑，而陷入是施加这种怀疑的好地方，因为入口只有一个。每一种绕过陷入的设计，都得在别处把这份怀疑重新建立起来。
 
@@ -252,6 +425,7 @@ int main(void)
 
 ## 延伸阅读
 
+- Moritz Lipp 等：[Meltdown: Reading Kernel Memory from User Space](https://www.usenix.org/conference/usenixsecurity18/presentation/lipp)，USENIX Security 2018：攻击本身、本文引用的代码，以及各操作系统的应对。
 - [The current state of kernel page-table isolation](https://lwn.net/Articles/741878/)（LWN，2017 年 12 月）：KPTI 如何拆分页表。
 - [Page Table Isolation (PTI)](https://docs.kernel.org/arch/x86/pti.html)：内核自己的文档，含开销一节。
 - [KPTI/KAISER Meltdown Initial Performance Regressions](https://www.brendangregg.com/blog/2018-02-09/kpti-kaiser-meltdown-performance.html)（Brendan Gregg，2018 年 2 月）：五个因素、测量数据和 800% 的案例。

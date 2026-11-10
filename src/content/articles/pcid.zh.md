@@ -187,6 +187,32 @@ grep -o 'nopti\|pti=[a-z]*' /proc/cmdline                     # 启动时被关�
 
 **ARM 用它自己的 ASID 做了同样的事。** 一些 ARM 核心同样受影响，arm64 Linux 也有了自己的版本，内核里叫“unmap kernel at [[exception-level|EL0]]”。ARM 的 TLB 一直都有 ASID。arm64 的实现给每个地址空间一对只在 ASID 最低位上不同的 ASID（即转换表基址寄存器第 48 位的 `USER_ASID_BIT`），并把内核的映射改为非全局。之后的 ARM 架构版本增加了一个硬件特性 E0PD，内核自己的注释说它做的是“与 KPTI 类似的工作”。
 
+::scene flush
+
+**教学内核也拆了页表，而且每次都清空。** [[riscv|RISC-V]] 版的 [[xv6|xv6]] 和 [[rcore|rCore]] 都给内核单独一张页表，每次陷入都切换过去，靠的是一个在两张表里映射在同一个最高地址的页面。这就是 KPTI 的结构。rCore 的教程把 Meltdown 列为理由之一，并说明它参考了 xv6；而早期的 x86 版 xv6 仍然把内核映射在每个进程 `0x80000000` 以上的地址。两个内核都没有用地址空间标签，所以每次切换都清空整个 TLB，也就是前面说的没有 PCID 的情形。
+
+:::fold 把 xv6、rCore 和 KPTI 放在一起看
+在 RISC-V 上，`satp` 寄存器扮演 CR3 的角色，`sfence.vma zero, zero` 会丢掉所有缓存的地址转换。下面是 xv6 `kernel/trampoline.S` 里陷入的入口和出口，有删节：
+
+```text
+uservec:
+        ld t1, 0(a0)              # p->trapframe->kernel_satp
+        sfence.vma zero, zero
+        csrw satp, t1             # 装上内核页表
+        sfence.vma zero, zero     # 清掉已经过期的用户表项
+        ...
+userret:
+        sfence.vma zero, zero
+        csrw satp, a0             # 换回用户页表
+        sfence.vma zero, zero
+```
+
+- trampoline 页在内核页表和每个进程的页表里都位于最高的虚拟地址，所以 `csrw satp` 的下一条指令换了页表之后，仍从同一个地址取指。用户页表里紧挨在它下面的是 trapframe 页，寄存器就保存在那里。用户页表里属于内核的就只有这两页，对应 KPTI 的入口代码和每 CPU 区域。
+- rCore 在 `os/src/trap/trap.S` 里做的是同一件事：`csrw satp` 之后接 `sfence.vma`。它的教程权衡过把内核映射进每个应用的做法，因为两个理由放弃了：在 K210 这样的小板子上太占内存，而且无法防御针对处理器设计缺陷的侧信道攻击，比如 Meltdown。
+- Linux 的内核副本仍然映射着全部用户内存，所以 `copy_from_user()` 可以直接解引用用户指针。xv6 的内核页表不映射任何用户内存，它的 `copyin()` 要用 `walkaddr()` 在软件里遍历进程的页表，把每个用户地址翻译出来；rCore 的 `translated_byte_buffer()` 也是这样。MIT 2020 年 6.S081 的页表实验，要求学生给每个进程一张加上了用户映射的内核页表，好让 `copyin` 直接解引用用户指针，这正是 Linux 的安排。
+- RISC-V 有 ASID，就在 `satp` 的一个字段里，但两个内核都没有用。于是每次陷入都要付出两次完整的 TLB 清空，正是 PCID 为 Linux 省掉的那笔代价。
+:::
+
 ::scene asid
 
 ## 回到书里的那条线
@@ -208,3 +234,6 @@ Linux 对书中“超过 256 个进程”这个问题的回答值得记住：别
 - [KPTI/KAISER Meltdown Initial Performance Regressions](https://www.brendangregg.com/blog/2018-02-09/kpti-kaiser-meltdown-performance.html)（Brendan Gregg，2018 年 2 月）：上文的测量数据。
 - [PCID is now a critical performance/security feature on x86](https://groups.google.com/g/mechanical-sympathy/c/L9mHTbeQLNU)（Gil Tene，2018 年 1 月）。
 - [Linux 4.14](https://kernelnewbies.org/Linux_4.14)（KernelNewbies）：开始使用 PCID 的那个版本。
+- [xv6-riscv `kernel/trampoline.S`](https://github.com/mit-pdos/xv6-riscv/blob/riscv/kernel/trampoline.S)：xv6 每次陷入时切换页表的代码。
+- [基于地址空间的分时多任务](https://rcore-os.cn/rCore-Tutorial-Book-v3/chapter4/6multitasking-based-on-as.html)（rCore Tutorial Book v3 第 4 章）：rCore 为什么把内核地址空间分开，以及它的跳板。
+- [Lab: page tables](https://pdos.csail.mit.edu/6.S081/2020/labs/pgtbl.html)（MIT 6.S081，2020）：给每个进程的内核页表加上用户映射的那个实验。

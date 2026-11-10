@@ -187,6 +187,32 @@ The flag counts come out once per logical CPU. On a virtual machine, a `Mitigati
 
 **ARM did the same thing with its own ASIDs.** Some ARM cores were also affected, and arm64 Linux gained its own version, which the kernel calls “unmap kernel at [[exception-level|EL0]]”. ARM has always had ASIDs in its TLBs. The arm64 implementation gives each address space a pair that differs in the lowest ASID bit, `USER_ASID_BIT` at bit 48 of the translation table base register, and makes the kernel’s mappings non-global. Later ARM architecture versions added a hardware feature, E0PD, which the kernel’s own comment describes as doing “a similar job to KPTI”.
 
+::scene flush
+
+**Teaching kernels split the tables too, and flush.** [[xv6|xv6]] on [[riscv|RISC-V]] and [[rcore|rCore]] both give the kernel a page table of its own and switch to it on every trap, through a page mapped at the same top address in both tables. That is KPTI’s structure. rCore’s tutorial names Meltdown as one of its reasons and says it follows xv6. The older x86 xv6 still mapped the kernel above `0x80000000` in every process. Neither kernel uses address-space tags, so each switch flushes the whole TLB: the case without PCID described above.
+
+:::fold xv6 and rCore next to KPTI
+On RISC-V the `satp` register plays the part of CR3, and `sfence.vma zero, zero` discards every cached translation. This is xv6’s trap entry and exit in `kernel/trampoline.S`, trimmed:
+
+```text
+uservec:
+        ld t1, 0(a0)              # p->trapframe->kernel_satp
+        sfence.vma zero, zero
+        csrw satp, t1             # install the kernel page table
+        sfence.vma zero, zero     # flush now-stale user entries
+        ...
+userret:
+        sfence.vma zero, zero
+        csrw satp, a0             # switch to the user page table
+        sfence.vma zero, zero
+```
+
+- The trampoline page sits at the highest virtual address in the kernel’s table and in every process’s table, so the instruction after `csrw satp` is fetched from the same address under the new table. Just below it in a user table is the trapframe page, where the registers are saved. Those two pages are all of the kernel a user table holds: the counterpart of KPTI’s entry code and per-CPU area.
+- rCore does the same in `os/src/trap/trap.S`, with `csrw satp` followed by `sfence.vma`. Its tutorial weighs mapping the kernel into every application and rejects it for two reasons: the memory it takes on small boards such as the K210, and that it cannot defend against side channels from processor design flaws such as Meltdown.
+- Linux’s kernel copy still maps all of user memory, so `copy_from_user()` dereferences a user pointer directly. xv6’s kernel table maps no user memory. Its `copyin()` translates each user address by walking the process’s page table in software with `walkaddr()`, and rCore’s `translated_byte_buffer()` does the same. MIT’s 2020 6.S081 page-table lab asked students to give each process a kernel page table with the user mappings added, so that `copyin` could dereference user pointers directly, which is Linux’s arrangement.
+- RISC-V has ASIDs, in a field of `satp`, but neither kernel uses them. Every trap therefore costs two full TLB flushes, the price that PCID removed for Linux.
+:::
+
 ::scene asid
 
 ## The thread back to the book
@@ -208,3 +234,6 @@ The tagging trick appears elsewhere too. [[virtually-indexed-cache|Caches that m
 - [KPTI/KAISER Meltdown Initial Performance Regressions](https://www.brendangregg.com/blog/2018-02-09/kpti-kaiser-meltdown-performance.html) (Brendan Gregg, February 2018): the measurements above.
 - [PCID is now a critical performance/security feature on x86](https://groups.google.com/g/mechanical-sympathy/c/L9mHTbeQLNU) (Gil Tene, January 2018).
 - [Linux 4.14](https://kernelnewbies.org/Linux_4.14) (KernelNewbies): the release that started using PCID.
+- [xv6-riscv `kernel/trampoline.S`](https://github.com/mit-pdos/xv6-riscv/blob/riscv/kernel/trampoline.S): the page-table switch on every trap in xv6.
+- [基于地址空间的分时多任务](https://rcore-os.cn/rCore-Tutorial-Book-v3/chapter4/6multitasking-based-on-as.html) (rCore Tutorial Book v3, chapter 4, in Chinese): why rCore separates the kernel’s address space, and its trampoline.
+- [Lab: page tables](https://pdos.csail.mit.edu/6.S081/2020/labs/pgtbl.html) (MIT 6.S081, 2020): the exercise that adds user mappings to a per-process kernel page table.

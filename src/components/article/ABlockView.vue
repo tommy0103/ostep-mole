@@ -140,6 +140,13 @@ const chapter = computed(() => (props.block.t === 'chapter' ? findChapter(props.
 .a-table tr:last-child td {
   border-bottom: 0;
 }
+/* on a phone a column would shrink to a character per line; let the table scroll sideways instead */
+@media (max-width: 640px) {
+  .a-table th,
+  .a-table td {
+    min-width: 6.5em;
+  }
+}
 .a-hr {
   border: 0;
   border-top: 1px solid var(--rule);
